@@ -4,7 +4,7 @@
 # educational purposes provided that (1) you do not distribute or publish
 # solutions, (2) you retain this notice, and (3) you provide clear
 # attribution to UC Berkeley, including a link to http://ai.berkeley.edu.
-# 
+#
 # Attribution Information: The Pacman AI projects were developed at UC Berkeley.
 # The core projects and autograders were primarily created by John DeNero
 # (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
@@ -18,6 +18,7 @@ Pacman agents (in searchAgents.py).
 """
 
 import util
+
 
 class SearchProblem:
     """
@@ -68,9 +69,11 @@ def tinyMazeSearch(problem):
     sequence of moves will be incorrect, so only use this for tinyMaze.
     """
     from game import Directions
+
     s = Directions.SOUTH
     w = Directions.WEST
-    return  [s, s, w, s, w, w, s, w]
+    return [s, s, w, s, w, w, s, w]
+
 
 def depthFirstSearch(problem):
     """
@@ -87,17 +90,51 @@ def depthFirstSearch(problem):
     print("Start's successors:", problem.getSuccessors(problem.getStartState()))
     """
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+
+    # Iterative DFS with parent node back tracking implemented by Tovi Tu
+    # Let a Node be (Position, Direction from parent node, Cost)
+    from util import Stack
+
+    stack = Stack()
+    startNode = (problem.getStartState(), "Start", 0)
+    stack.push(startNode)
+    expanded = set()
+    parentMap = dict()
+
+    while not stack.isEmpty():
+        node = stack.pop()
+        if problem.isGoalState(node[0]):
+            # Start back tracking
+            steps = []
+            curNode = node
+            while curNode != startNode:
+                prevNode = parentMap[curNode]
+                steps.append(prevNode[1])
+                curNode = prevNode
+            return steps[-2::-1] + [node[1]]
+
+        if node not in expanded:
+            successors = problem.getSuccessors(node[0])
+            expanded.add(node[0])
+            for s in successors:
+                if s[0] not in expanded:
+                    parentMap[s] = node
+                    stack.push(s)
+
+    return []
+
 
 def breadthFirstSearch(problem):
     """Search the shallowest nodes in the search tree first."""
     "*** YOUR CODE HERE ***"
     util.raiseNotDefined()
 
+
 def uniformCostSearch(problem):
     """Search the node of least total cost first."""
     "*** YOUR CODE HERE ***"
     util.raiseNotDefined()
+
 
 def nullHeuristic(state, problem=None):
     """
@@ -105,6 +142,7 @@ def nullHeuristic(state, problem=None):
     goal in the provided SearchProblem.  This heuristic is trivial.
     """
     return 0
+
 
 def aStarSearch(problem, heuristic=nullHeuristic):
     """Search the node that has the lowest combined cost and heuristic first."""
