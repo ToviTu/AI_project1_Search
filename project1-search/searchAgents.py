@@ -43,6 +43,7 @@ from game import Actions
 import util
 import time
 import search
+import math
 
 
 class GoWestAgent(Agent):
@@ -446,9 +447,10 @@ def cornersHeuristic(state, problem):
 
     "*** YOUR CODE HERE ***"
     # Get the current position (x, y) from the state.
-    # Initialize a list unvisited_corners to keep track of unvisited corners.
-    # For each corner in the list, if it has not been visited in the state, add it to unvisited_corners.
+    # Initialize a list current position, distance, list of all the corners.
+    # For each corner in the unvisited_corner list, if it has been visited, remove it.
     # If all corners have been visited, return 0 as the heuristic value.
+    # In the while loop, minimum distance from each action Pacman takes will be calculated from manhattan to expand the search.
     # Otherwise, calculate the Manhattan distance from the current position to each corner in unvisited_corners.
     # Return the minimum Manhattan distance as the heuristic value. 
 
@@ -459,13 +461,24 @@ def cornersHeuristic(state, problem):
     if not unvisited_corners:
         return 0  # All corners have been visited
 
-    min_distance = float("inf")
-    for corner in unvisited_corners:
-        manhattan_dist = abs(x - corner[0]) + abs(y - corner[1])
-        if manhattan_dist < min_distance:
-            min_distance = manhattan_dist
+    current_position = (x, y)
+    total_distance = 0
 
-    return min_distance
+    while unvisited_corners:
+        min_distance = float("inf")
+        closest_corner = None
+
+        for corner in unvisited_corners:
+            manhattan_dist = abs(current_position[0] - corner[0]) + abs(current_position[1] - corner[1])
+            if manhattan_dist < min_distance:
+                min_distance = manhattan_dist
+                closest_corner = corner
+
+        total_distance += min_distance
+        current_position = closest_corner
+        unvisited_corners.remove(closest_corner)
+
+    return total_distance
 
 
 
