@@ -133,7 +133,35 @@ def breadthFirstSearch(problem):
 def uniformCostSearch(problem):
     """Search the node of least total cost first."""
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    from util import PriorityQueue
+
+    stack = PriorityQueue()
+    startNode = (problem.getStartState(), "Start", 0)
+    stack.push(startNode, startNode[-1])
+    expanded = set()
+    parentMap = dict()
+
+    while not stack.isEmpty():
+        node = stack.pop()
+        if problem.isGoalState(node[0]):
+            # Start back tracking
+            steps = []
+            curNode = node
+            while curNode != startNode:
+                prevNode = parentMap[curNode]
+                steps.append(prevNode[1])
+                curNode = prevNode
+            return steps[-2::-1] + [node[1]]
+
+        if node not in expanded:
+            successors = problem.getSuccessors(node[0])
+            expanded.add(node[0])
+            for s in successors:
+                if s[0] not in expanded:
+                    parentMap[s] = node
+                    stack.push(s, s[-1])
+
+    return []
 
 
 def nullHeuristic(state, problem=None):
