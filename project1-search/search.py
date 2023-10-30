@@ -17,6 +17,7 @@ In search.py, you will implement generic search algorithms which are called by
 Pacman agents (in searchAgents.py).
 """
 
+from sre_parse import State
 import util
 
 
@@ -108,7 +109,7 @@ def depthFirstSearch(problem):
             steps = []
             curNode = node
             while curNode != startNode:
-                prevNode = parentMap[curNode]
+                prevNode = parentMap[curNode[0]]
                 steps.append(prevNode[1])
                 curNode = prevNode
             return steps[-2::-1] + [node[1]]
@@ -118,16 +119,56 @@ def depthFirstSearch(problem):
             expanded.add(node[0])
             for s in successors:
                 if s[0] not in expanded:
-                    parentMap[s] = node
                     stack.push(s)
-
+                    parentMap[s[0]] = node
     return []
 
 
 def breadthFirstSearch(problem):
     """Search the shallowest nodes in the search tree first."""
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    from util import Queue
+
+    startNode = (
+        problem.getStartState(),
+        "Start",
+        0,
+    )  # Position, Action, Cost from start
+
+    stack = Queue()  # frontiers
+    stack.push(startNode)
+    expanded = set()  # Position
+    parentMap = dict()  # {Position: (parent node, Cost from start)}
+
+    while not stack.isEmpty():
+        # print(stack.list)
+        node = stack.pop()
+
+        if problem.isGoalState(node[0]):
+            # Start back tracking
+            steps = []
+            curNode = node
+            while curNode != startNode:
+                prevNode = parentMap[curNode[0]][0]
+                steps.append(prevNode[1])
+                curNode = prevNode
+
+            return steps[-2::-1] + [node[1]]
+
+        if node[0] not in expanded:
+            successors = problem.getSuccessors(node[0])
+            expanded.add(node[0])
+            cumCost = parentMap[node[0]][1] if node[1] != "Start" else 0
+            for s in successors:
+                if (
+                    parentMap.get(s[0], None) is None
+                    or cumCost + s[2] < parentMap[s[0]][1]
+                ):
+                    parentMap[s[0]] = (node, cumCost + s[2])
+                if s[0] not in expanded:
+                    stack.push(s)
+
+    return []
 
 
 def uniformCostSearch(problem):
@@ -135,31 +176,43 @@ def uniformCostSearch(problem):
     "*** YOUR CODE HERE ***"
     from util import PriorityQueue
 
-    stack = PriorityQueue()
-    startNode = (problem.getStartState(), "Start", 0)
-    stack.push(startNode, startNode[-1])
-    expanded = set()
-    parentMap = dict()
+    startNode = (
+        problem.getStartState(),
+        "Start",
+        0,
+    )  # Position, Action, Cost from start
+
+    stack = PriorityQueue()  # frontiers
+    stack.push(startNode, startNode[2])
+    expanded = set()  # Position
+    parentMap = dict()  # {Position: (parent node, Cost from start)}
 
     while not stack.isEmpty():
         node = stack.pop()
+
         if problem.isGoalState(node[0]):
             # Start back tracking
             steps = []
             curNode = node
             while curNode != startNode:
-                prevNode = parentMap[curNode]
+                prevNode = parentMap[curNode[0]][0]
                 steps.append(prevNode[1])
                 curNode = prevNode
+
             return steps[-2::-1] + [node[1]]
 
-        if node not in expanded:
+        if node[0] not in expanded:
             successors = problem.getSuccessors(node[0])
             expanded.add(node[0])
+            cumCost = parentMap[node[0]][1] if node[1] != "Start" else 0
             for s in successors:
+                if (
+                    parentMap.get(s[0], None) is None
+                    or cumCost + s[2] < parentMap[s[0]][1]
+                ):
+                    parentMap[s[0]] = (node, cumCost + s[2])
                 if s[0] not in expanded:
-                    parentMap[s] = node
-                    stack.push(s, s[-1])
+                    stack.push(s, cumCost + s[2])
 
     return []
 
@@ -175,7 +228,47 @@ def nullHeuristic(state, problem=None):
 def aStarSearch(problem, heuristic=nullHeuristic):
     """Search the node that has the lowest combined cost and heuristic first."""
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    from util import PriorityQueue
+
+    startNode = (
+        problem.getStartState(),
+        "Start",
+        0,
+    )  # Position, Action, Cost from start
+
+    stack = PriorityQueue()  # frontiers
+    stack.push(startNode, startNode[2])
+    expanded = set()  # Position
+    parentMap = dict()  # {Position: (parent node, Cost from start)}
+
+    while not stack.isEmpty():
+        node = stack.pop()
+
+        if problem.isGoalState(node[0]):
+            # Start back tracking
+            steps = []
+            curNode = node
+            while curNode != startNode:
+                prevNode = parentMap[curNode[0]][0]
+                steps.append(prevNode[1])
+                curNode = prevNode
+
+            return steps[-2::-1] + [node[1]]
+
+        if node[0] not in expanded:
+            successors = problem.getSuccessors(node[0])
+            expanded.add(node[0])
+            cumCost = parentMap[node[0]][1] if node[1] != "Start" else 0
+            for s in successors:
+                if (
+                    parentMap.get(s[0], None) is None
+                    or cumCost + s[2] < parentMap[s[0]][1]
+                ):
+                    parentMap[s[0]] = (node, cumCost + s[2])
+                if s[0] not in expanded:
+                    stack.push(s, cumCost + s[2] + heuristic(s[0], problem=problem))
+
+    return []
 
 
 # Abbreviations
