@@ -12,6 +12,8 @@
 # Pieter Abbeel (pabbeel@cs.berkeley.edu).
 
 
+from contextlib import nullcontext
+from unittest import result
 from util import manhattanDistance
 from game import Directions
 import random, util
@@ -74,7 +76,30 @@ class ReflexAgent(Agent):
         newScaredTimes = [ghostState.scaredTimer for ghostState in newGhostStates]
 
         "*** YOUR CODE HERE ***"
-        return successorGameState.getScore()
+        from util import PriorityQueueWithFunction, manhattanDistance
+        import math
+        dist2self = lambda x: manhattanDistance(x, newPos)
+        squash = lambda x: 1 / (1 + math.e**(-0.1 * x))
+
+        food_pq = PriorityQueueWithFunction(dist2self)
+        for food in newFood.asList():
+            food_pq.push(food)
+
+        numFoodLeft = len(newFood.asList())
+        nearestFoodDist = dist2self(food_pq.pop()) if numFoodLeft > 0 else 1e-10
+
+        result = (
+            successorGameState.getScore() 
+            + 3*squash(dist2self(newGhostStates[0].getPosition())) 
+            + math.e**(-nearestFoodDist) 
+            + 1/squash(numFoodLeft)
+        ) if newScaredTimes[0] == 0 else (
+            successorGameState.getScore() 
+            + 10 * math.e**(-nearestFoodDist) 
+            + 1/squash(numFoodLeft)
+            + 100
+        )
+        return result
 
 def scoreEvaluationFunction(currentGameState):
     """
@@ -135,7 +160,44 @@ class MinimaxAgent(MultiAgentSearchAgent):
         Returns whether or not the game state is a losing state
         """
         "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        self.num_agents = gameState.getNumAgents()
+        self.total_calls = 0
+        val, act = self.max_value(0, gameState)
+        print(self.total_calls)
+        return act
+    
+    def max_value(self, depth, gameState):
+        if self.depth == depth / self.num_agents or gameState.isWin() or gameState.isLose():
+            return self.evaluationFunction(gameState), None
+        best_value = -1e10
+        best_action = None
+
+        agentIndex = 0
+        for action in gameState.getLegalActions(agentIndex):
+            successorGameState = gameState.generateSuccessor(0, action)
+            val, act = self.min_value(depth+1, successorGameState)
+            self.total_calls += 1
+            if val > best_value:
+                best_action = action
+                best_value = val
+        return best_value, best_action
+    
+    def min_value(self, depth, gameState):
+        if self.depth == depth / self.num_agents or gameState.isWin() or gameState.isLose():
+            return self.evaluationFunction(gameState), None
+        best_value = 1e10
+        best_action = None
+
+        agentIndex = depth % self.num_agents
+        for action in gameState.getLegalActions(agentIndex):
+            successorGameState = gameState.generateSuccessor(agentIndex, action)
+            val, act = self.min_value(depth+1, successorGameState) if depth%self.num_agents!=0 else self.max_value(depth+1, successorGameState)
+            self.total_calls += 1
+            if val < best_value:
+                best_action = action
+                best_value = val
+        return best_value, best_action
+
 
 class AlphaBetaAgent(MultiAgentSearchAgent):
     """
@@ -172,7 +234,33 @@ def betterEvaluationFunction(currentGameState):
     DESCRIPTION: <write something here so we know what you did>
     """
     "*** YOUR CODE HERE ***"
-    util.raiseNotDefined()
+    Pos = currentGameState.getPacmanPosition()
+    Food = currentGameState.getFood()
+    GhostStates = currentGameState.getGhostStates()
+    ScaredTimes = [ghostState.scaredTimer for ghostState in GhostStates]
+    from util import PriorityQueueWithFunction, manhattanDistance
+    import math
+    dist2self = lambda x: manhattanDistance(x, Pos)
+    squash = lambda x: 1 / (1 + math.e**(-0.1 * x))
 
+    food_pq = PriorityQueueWithFunction(dist2self)
+    for food in Food.asList():
+        food_pq.push(food)
+
+    numFoodLeft = len(Food.asList())
+    nearestFoodDist = dist2self(food_pq.pop()) if numFoodLeft > 0 else 1e-10
+
+    result = (
+        currentGameState.getScore() 
+        + 3*squash(dist2self(GhostStates[0].getPosition())) 
+        + math.e**(-nearestFoodDist) 
+        + 1/squash(numFoodLeft)
+    ) if ScaredTimes[0] == 0 else (
+        currentGameState.getScore() 
+        + 10 * math.e**(-nearestFoodDist) 
+        + 1/squash(numFoodLeft)
+        + 100
+    )
+    return result
 # Abbreviation
 better = betterEvaluationFunction

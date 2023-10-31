@@ -452,7 +452,7 @@ def cornersHeuristic(state, problem):
     # If all corners have been visited, return 0 as the heuristic value.
     # In the while loop, minimum distance from each action Pacman takes will be calculated from manhattan to expand the search.
     # Otherwise, calculate the Manhattan distance from the current position to each corner in unvisited_corners.
-    # Return the minimum Manhattan distance as the heuristic value. 
+    # Return the minimum Manhattan distance as the heuristic value.
 
     x, y, visited_corners = state  # Current state
 
@@ -469,7 +469,9 @@ def cornersHeuristic(state, problem):
         closest_corner = None
 
         for corner in unvisited_corners:
-            manhattan_dist = abs(current_position[0] - corner[0]) + abs(current_position[1] - corner[1])
+            manhattan_dist = abs(current_position[0] - corner[0]) + abs(
+                current_position[1] - corner[1]
+            )
             if manhattan_dist < min_distance:
                 min_distance = manhattan_dist
                 closest_corner = corner
@@ -479,7 +481,6 @@ def cornersHeuristic(state, problem):
         unvisited_corners.remove(closest_corner)
 
     return total_distance
-
 
 
 class AStarCornersAgent(SearchAgent):
@@ -624,7 +625,7 @@ def foodHeuristic(state, problem):
 
     unvisited = foods
     visitedNum = 0
-    while len(unvisited) > 0 and visitedNum <= 7:
+    while len(unvisited) > 0 and visitedNum <= 5:
         unvisited.remove(theFood)
         theFood, d = findClosetFood(theFood, unvisited)
         h0 += d
