@@ -210,7 +210,54 @@ class AlphaBetaAgent(MultiAgentSearchAgent):
         Returns the minimax action using self.depth and self.evaluationFunction
         """
         "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        def alpha_beta(state, agent_index, depth, alpha, beta):
+            if state.isWin() or state.isLose():
+                return self.evaluationFunction(state)
+
+            agent_index = agent_index % state.getNumAgents()
+            # The index of the current agent (0 for the first agent, 1 for the second, and so on).
+
+            # If the agent_index is 0, it means it's the maximizing player's turn, so it checks the depth. If the depth is greater 
+            # than or equal to the maximum depth (self.depth), it returns the evaluation of the state. Otherwise, it calls the
+            # max_value function.
+            if agent_index == 0:
+                depth += 1
+                if self.depth < depth:
+                    return self.evaluationFunction(state)
+                else:
+                    return max_value(state, agent_index, depth, alpha, beta)
+            else:
+                return min_value(state, agent_index, depth, alpha, beta)
+
+        def min_value(state, agent_index, depth, alpha, beta):
+            value = float('inf')
+            for action in state.getLegalActions(agent_index):
+                next_state = state.generateSuccessor(agent_index, action)
+                next_value = alpha_beta(next_state, agent_index + 1, depth, alpha, beta)
+                value = min(value, next_value)
+
+                if value < alpha:
+                    return value
+                beta = min(beta, value)
+            return value
+
+        def max_value(state, agent_index, depth, alpha, beta):
+            value = float('-inf')
+            best_action = None
+            for action in state.getLegalActions(agent_index):
+                next_state = state.generateSuccessor(agent_index, action)
+                next_value = alpha_beta(next_state, agent_index + 1, depth, alpha, beta)
+                if value < next_value:
+                    value = next_value
+                    best_action = action
+                if value > beta:
+                    return value
+                alpha = max(value, alpha)
+
+            return value if depth > 1 else best_action
+        
+        act = alpha_beta(gameState, 0, 0, float('-inf'), float('inf'))
+        return act
 
 class ExpectimaxAgent(MultiAgentSearchAgent):
     """
@@ -225,7 +272,50 @@ class ExpectimaxAgent(MultiAgentSearchAgent):
         legal moves.
         """
         "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        def expectimax(state, agentIndex, depth):
+            if state.isWin() or state.isLose():
+                return self.evaluationFunction(state)
+            agentIndex = agentIndex % state.getNumAgents()
+            if agentIndex == 0:
+                depth += 1
+                if depth > self.depth:
+                    return self.evaluationFunction(state)
+                else:
+                    return max_value(state, agentIndex, depth)
+            else:
+                return exp_value(state, agentIndex, depth)
+
+        def max_value(state, agentIndex, depth):
+            value = float('-inf')
+            best_action = None
+
+            for action in state.getLegalActions(agentIndex):
+                next_state = state.generateSuccessor(agentIndex, action)
+                next_val = expectimax(next_state, agentIndex + 1, depth)
+                if next_val > value:
+                    best_action = action
+                    value = next_val
+            return value if depth > 1 else best_action
+
+        def exp_value(state, agentIndex, depth):
+            value = 0
+            actions = state.getLegalActions(agentIndex)
+            num_actions = len(actions)
+
+            if num_actions == 0:
+                return self.evaluationFunction(state)
+
+            for action in actions:
+                next_state = state.generateSuccessor(agentIndex, action)
+                next_value = expectimax(next_state, agentIndex + 1, depth)
+
+                probability = 1.0 / num_actions
+                value += probability * next_value
+
+            return value
+
+        act = expectimax(gameState, 0, 0)
+        return act
 
 def betterEvaluationFunction(currentGameState):
     """
