@@ -21,7 +21,8 @@
 
 def question2():
     answerDiscount = 0.9
-    answerNoise = 0.2
+    answerNoise = 0
+    # changed answerNoise from 0.2 to 0, which will make the agent more deterministic to cross the bridge.
     return answerDiscount, answerNoise
 
 def question3a():
