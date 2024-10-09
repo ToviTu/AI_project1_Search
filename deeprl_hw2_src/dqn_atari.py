@@ -153,7 +153,7 @@ def main():
         memory=tfrl.core.ReplayMemory(max_size, window),
         gamma=gamma,
         target_update_freq=target_update_frequency,
-        num_burn_in=500,  # 50000,
+        num_burn_in=50000,
         train_freq=window,
         batch_size=batchsize,
     )

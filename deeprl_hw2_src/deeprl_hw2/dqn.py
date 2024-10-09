@@ -233,16 +233,22 @@ class DQNAgent:
         self.Q_target.train()
         self.is_train = True
 
+        from torch.utils.tensorboard import SummaryWriter
+
+        writer = SummaryWriter("runs/experiment_1")
+
+        loss = []
         episode_num = 0
         step = 0
         total_rewards = 0
         done = False
         state = env.reset()
         processed_state = self.preprocessor.process_state_for_memory(state)
-        for iter in tqdm.tqdm(range(num_iterations)):
+        for iter in tqdm.tqdm(range(num_iterations + self.num_burn_in)):
+            in_burn_in = iter < self.num_burn_in
 
             # Take an action according to Q
-            action = self.select_action(state, policy=policy)
+            action = self.select_action(state, policy=policy, step=not in_burn_in)
             next_state, reward, done = env.step(action)
             total_rewards += reward
 
@@ -253,18 +259,32 @@ class DQNAgent:
             self.memory.append(
                 processed_state, action, reward, processed_next_state, done
             )
-            loss = self.update_policy()
+
             state = next_state
 
-            if iter % self.target_update_freq == 0:
-                self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
+            if not in_burn_in:
+                l = self.update_policy()
+                if l is not None:
+                    loss.append(l.item())
+
+                if iter % self.target_update_freq == 0:
+                    self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
 
             step += 1
 
             if done or (max_episode_length is not None and step >= max_episode_length):
-                print(
-                    f"Step: {iter}/{num_iterations} Episode {episode_num}: Total reward: {total_rewards} Explore P: {policy.policy.epsilon}"
-                )
+                if not in_burn_in:
+                    print(
+                        f"Step: {iter-self.num_burn_in}/{num_iterations-self.num_burn_in} Episode {episode_num}: Total reward: {total_rewards} Explore P: {policy.policy.epsilon}"
+                    )
+
+                    logs = {
+                        "episode_num": episode_num,
+                        "total_rewards": total_rewards,
+                        "average loss": np.mean(loss),
+                    }
+                    for key, value in logs.items():
+                        writer.add_scalar(key, value, iter)
 
                 step = 0
                 total_rewards = 0
@@ -274,6 +294,7 @@ class DQNAgent:
                 # Time to reset
                 self.preprocessor.reset()
                 state = env.reset()
+            writer.close()
 
     def evaluate(self, env, num_episodes, max_episode_length=None, policy=None):
         """Test your agent with a provided environment.
