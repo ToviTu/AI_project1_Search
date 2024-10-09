@@ -234,47 +234,46 @@ class DQNAgent:
         self.is_train = True
 
         episode_num = 0
-        iter = 0
-        while iter < num_iterations:
-            state = env.reset()
-            done = False
-            step = 0
+        step = 0
+        total_rewards = 0
+        done = False
+        state = env.reset()
+        processed_state = self.preprocessor.process_state_for_memory(state)
+        for iter in tqdm.tqdm(range(num_iterations)):
 
-            total_rewards = 0
-            while not done and (
-                max_episode_length is None or step < max_episode_length
-            ):
-                # Take an action according to Q
-                action = self.select_action(state, policy=policy)
-                next_state, reward, done = env.step(action)
-                total_rewards += reward
+            # Take an action according to Q
+            action = self.select_action(state, policy=policy)
+            next_state, reward, done = env.step(action)
+            total_rewards += reward
 
-                # Preprocess the states before adding to memory
-                processed_state = self.preprocessor.process_state_for_memory(state)
-                # Do not add s' to the history yet
-                processed_next_state = self.preprocessor.process_state_for_memory(
-                    next_state,
-                    update_history=True,
-                )
-                self.memory.append(
-                    processed_state, action, reward, processed_next_state, done
-                )
-                loss = self.update_policy()
-                state = next_state
-
-                if iter % self.target_update_freq == 0:
-                    self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
-
-                step += 1
-                iter += 1
-
-            episode_num += 1
-            print(
-                f"Step: {iter}/{num_iterations} Episode {episode_num}: Total reward: {total_rewards} Explore P: {policy.policy.epsilon}"
+            # Do not add s' to the history yet
+            processed_next_state = self.preprocessor.process_state_for_memory(
+                next_state,
             )
+            self.memory.append(
+                processed_state, action, reward, processed_next_state, done
+            )
+            loss = self.update_policy()
+            state = next_state
 
-            # Time to reset
-            self.preprocessor.reset()
+            if iter % self.target_update_freq == 0:
+                self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
+
+            step += 1
+
+            if done or (max_episode_length is not None and step >= max_episode_length):
+                print(
+                    f"Step: {iter}/{num_iterations} Episode {episode_num}: Total reward: {total_rewards} Explore P: {policy.policy.epsilon}"
+                )
+
+                step = 0
+                total_rewards = 0
+                episode_num += 1
+                done = False
+
+                # Time to reset
+                self.preprocessor.reset()
+                state = env.reset()
 
     def evaluate(self, env, num_episodes, max_episode_length=None, policy=None):
         """Test your agent with a provided environment.
