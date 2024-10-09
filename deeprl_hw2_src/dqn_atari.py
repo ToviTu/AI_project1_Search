@@ -166,7 +166,7 @@ def main():
             tfrl.policy.GreedyEpsilonPolicy, "epsilon", 1.0, 0.1, max_size
         ),
     )
-    agent.evaluate(env, num_episodes=5, policy=tfrl.policy.GreedyPolicy())
+    # agent.evaluate(env, num_episodes=5, policy=tfrl.policy.GreedyPolicy())
 
 
 if __name__ == "__main__":

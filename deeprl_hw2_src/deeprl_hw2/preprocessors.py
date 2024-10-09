@@ -38,6 +38,8 @@ class HistoryPreprocessor(Preprocessor):
     def process_state_for_network(self, state, update_history=True):
         """You only want history when you're deciding the current action to take."""
 
+        # Avoid modifying the original state
+        state = copy.deepcopy(state)
         # Take maximum of the last 2 frames
         state_max = np.maximum.reduce([state, self.last_raw])
         self.last_raw = state
@@ -124,6 +126,7 @@ class AtariPreprocessor(Preprocessor):
         image conversions.
         """
         # assuming state is an image (210, 160, 3)
+        state = copy.deepcopy(state)
         # Let us process with Image module
         img = Image.fromarray(state)
 

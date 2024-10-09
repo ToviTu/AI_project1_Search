@@ -71,8 +71,13 @@ class DQNAgent:
         self.batch_size = batch_size
 
         self.is_train = True
+        self.iter = 0  # Total steps including burn-in
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    @property
+    def training_iter(self):
+        return max(0, self.iter - self.num_burn_in)
 
     def compile(self, optimizer, loss_func):
         """Setup all of the TF graph variables/ops.
@@ -103,7 +108,7 @@ class DQNAgent:
         # Define the optimizer
         # Defining one for the Q network is sufficient because there is no
         # gradient flow from the target network
-        self.optimizer = optimizer(self.Q.parameters(), lr=3e-4)
+        self.optimizer = optimizer(self.Q.parameters(), lr=1e-5)
 
     def calc_q_values(self, state):
         """Given a state (or batch of states) calculate the Q-values.
@@ -164,44 +169,49 @@ class DQNAgent:
         You might want to return the loss and other metrics as an
         output. They can help you monitor how training is going.
         """
-        if len(self.memory) < self.num_burn_in:
-            return
+        loss = None
+        # Nothing happens during burn-in (warm-up)
+        if self.training_iter <= 0:
+            return loss
 
-        if self.memory.pointer % self.train_freq != 0:
-            return
+        # Avoid update during burn-in
+        if (self.training_iter + 1) % self.train_freq == 0:
 
-        # Sample a minibatch
-        samples = self.memory.sample(self.batch_size)
-        processed_samples = self.preprocessor.process_batch(
-            samples
-        )  # Simple conversion to floats
-        processed_samples = [s.as_tuple() for s in processed_samples]
-        states, actions, rewards, next_states, dones = tuple(
-            np.stack(e) for e in zip(*processed_samples)
-        )
+            # Sample a minibatch
+            samples = self.memory.sample(self.batch_size)
+            processed_samples = self.preprocessor.process_batch(
+                samples
+            )  # Simple conversion to floats
+            processed_samples = [s.as_tuple() for s in processed_samples]
+            states, actions, rewards, next_states, dones = tuple(
+                np.stack(e) for e in zip(*processed_samples)
+            )
 
-        # Convert to tensors
-        states = torch.tensor(states, dtype=torch.float32).to(self.device)
-        actions = torch.tensor(actions, dtype=torch.int64).to(self.device)
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        next_states = torch.tensor(next_states, dtype=torch.float32).to(self.device)
-        dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
+            # Convert to tensors
+            states = torch.tensor(states, dtype=torch.float32).to(self.device)
+            actions = torch.tensor(actions, dtype=torch.int64).to(self.device)
+            rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
+            next_states = torch.tensor(next_states, dtype=torch.float32).to(self.device)
+            dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
 
-        # Calculate the target values
-        with torch.no_grad():
-            next_q_values = self.Q_target(next_states)
-            max_next_q_values = torch.max(next_q_values, dim=1).values
-            target_values = rewards + self.gamma * max_next_q_values * (1 - dones)
+            # Calculate the target values
+            with torch.no_grad():
+                next_q_values = self.Q_target(next_states)
+                max_next_q_values = torch.max(next_q_values, dim=1).values
+                target_values = rewards + self.gamma * max_next_q_values * (1 - dones)
 
-        # Update your network
-        self.optimizer.zero_grad()
-        q_values = self.Q(states)  # (B, A)
-        selected_q_values = torch.gather(
-            q_values, 1, actions.unsqueeze(1)
-        ).squeeze()  # (B, 1) -> (B)
-        loss = self.loss_func(selected_q_values, target_values)
-        loss.backward()
-        self.optimizer.step()
+            # Update your network
+            self.optimizer.zero_grad()
+            q_values = self.Q(states)  # (B, A)
+            selected_q_values = torch.gather(
+                q_values, 1, actions.unsqueeze(1)
+            ).squeeze()  # (B, 1) -> (B)
+            loss = self.loss_func(selected_q_values, target_values)
+            loss.backward()
+            self.optimizer.step()
+
+        if self.training_iter % self.target_update_freq == 0:
+            self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
 
         return loss
 
@@ -233,68 +243,70 @@ class DQNAgent:
         self.Q_target.train()
         self.is_train = True
 
-        from torch.utils.tensorboard import SummaryWriter
-
-        writer = SummaryWriter("runs/experiment_1")
-
         loss = []
         episode_num = 0
         step = 0
         total_rewards = 0
         done = False
+
         state = env.reset()
         processed_state = self.preprocessor.process_state_for_memory(state)
-        for iter in tqdm.tqdm(range(num_iterations + self.num_burn_in)):
-            in_burn_in = iter < self.num_burn_in
+        while self.iter < num_iterations + self.num_burn_in:
+            in_burn_in = self.training_iter <= 0
 
             # Take an action according to Q
-            action = self.select_action(state, policy=policy, step=not in_burn_in)
-            next_state, reward, done = env.step(action)
-            total_rewards += reward
+            action = self.select_action(
+                state, policy=policy, step=not in_burn_in
+            )  # No step during burn-in
 
-            # Do not add s' to the history yet
-            processed_next_state = self.preprocessor.process_state_for_memory(
-                next_state,
-            )
-            self.memory.append(
-                processed_state, action, reward, processed_next_state, done
-            )
+            # Repeat the same action for a few steps
+            for _ in range(self.train_freq):
+                next_state, reward, done = env.step(action)
+                total_rewards += reward
 
-            state = next_state
+                # Store the transition in memory
+                processed_next_state = self.preprocessor.process_state_for_memory(
+                    next_state,
+                )
+                self.memory.append(
+                    processed_state, action, reward, processed_next_state, done
+                )
+                processed_state = processed_next_state
 
-            if not in_burn_in:
-                l = self.update_policy()
-                if l is not None:
-                    loss.append(l.item())
+            # Update the policy
+            l = self.update_policy()
+            if l is not None:
+                loss.append(l.item())
 
-                if iter % self.target_update_freq == 0:
-                    self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
-
+            # Count how many steps we have taken in this episode
             step += 1
+            # Update the iteration count
+            self.iter += 1
 
-            if done or (max_episode_length is not None and step >= max_episode_length):
-                if not in_burn_in:
-                    print(
-                        f"Step: {iter-self.num_burn_in}/{num_iterations-self.num_burn_in} Episode {episode_num}: Total reward: {total_rewards} Explore P: {policy.policy.epsilon}"
-                    )
+            # Early stop when reaching max_episode_length
+            if max_episode_length is not None and step >= max_episode_length:
+                done = True
 
-                    logs = {
-                        "episode_num": episode_num,
-                        "total_rewards": total_rewards,
-                        "average loss": np.mean(loss),
-                    }
-                    for key, value in logs.items():
-                        writer.add_scalar(key, value, iter)
+            # Finish this episode
+            if done and not in_burn_in:
 
+                logs = {
+                    "step": self.training_iter,
+                    "episode_num": episode_num,
+                    "total_rewards": total_rewards,
+                    "average loss": np.mean(loss).item(),
+                    "epsilon": policy.policy.epsilon,
+                }
+                print(logs)
+
+                # Reset
                 step = 0
                 total_rewards = 0
                 episode_num += 1
                 done = False
 
-                # Time to reset
                 self.preprocessor.reset()
                 state = env.reset()
-            writer.close()
 
     def evaluate(self, env, num_episodes, max_episode_length=None, policy=None):
         """Test your agent with a provided environment.

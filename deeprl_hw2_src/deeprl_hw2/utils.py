@@ -2,6 +2,7 @@
 
 import semver
 import gymnasium as gym
+import torch
 
 # import tensorflow as tf
 
@@ -96,6 +97,10 @@ def get_hard_target_model_updates(target, source):
     # Implement in PyTorch
 
     target.load_state_dict(source.state_dict())
+
+    for target_param, param in zip(target.parameters(), source.parameters()):
+        assert torch.equal(target_param.data, param.data)
+
     return target
 
 
