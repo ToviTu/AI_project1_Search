@@ -1,0 +1,5 @@
+attr==0.3.2
+numpy==2.1.2
+Pillow==10.4.0
+semver==3.0.2
+torch==2.4.1

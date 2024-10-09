@@ -8,28 +8,91 @@ from itertools import combinations
 
 # =================== Task 1: Compute Node Centralities ===================
 
-
 # ---------- Task 2.1: eigenvector centrality
+# def get_eigen_centrality(graph):
+#     # adj matrix of graph
+#     A = []
+#     # change element in A into float type
+#     #A_float = A.astype(float)
+
+#     # use linalg.eigs() to get eigenvalue and vectors
+#     #eigenvalue, eigenvector = linalg.eigs(, k = , which = 'LR')
+
+#     #largest = eigenvector.flatten().real
+
+#     # compute the norm
+#     #norm = sp.sign(largest.sum())*sp.linalg.norm(largest)
+
+#     # return the normalized eigen vector
+#     return []
+
+
 def get_eigen_centrality(graph):
-    # adj matrix of graph
+    # Get the adjacency matrix of the graph
     A = graph.get_adj_matrix()
-    # change element in A into float type
+
+    # Ensure the adjacency matrix is of float type for eigen computation
     A_float = A.astype(float)
 
-    # use linalg.eigs() to get eigenvalue and vectors
+    # Use linalg.eigs to get the largest eigenvalue and the corresponding eigenvector
     eigenvalue, eigenvector = linalg.eigs(A_float, k=1, which="LR")
 
+    # Get the real part of the eigenvector (it may contain complex numbers)
     largest = eigenvector.flatten().real
 
-    # compute the norm
-    norm = np.sign(largest.sum()) * sp.linalg.norm(largest)
+    # Compute the norm for normalization
+    norm = np.sign(largest.sum()) * np.linalg.norm(largest)
 
-    # return the normalized eigen vector
+    # Return the normalized eigenvector as the centrality scores
     return largest / norm
 
 
 # ------------ Task 2.2:  compute betweenness centrality
 # compute the levels for a given source node s
+# def levels_BFS(graph, s):
+#     # this function is essentially the same as distance_BFS()
+#     # the only difference is that we need to store all the levels of node
+
+#     adj_list = graph.get_adj_list()
+#     visited = [False] * graph.n
+
+#     # store all levels of nodes
+#     levels = []
+
+#     current_level = [s]
+#     visited[s] = True
+
+#     next_level = []
+#     depth = 0
+#     distance = np.zeros(graph.n, dtype=int)
+#     distance[s] = 0
+
+#     while len(current_level) > 0:
+#         for node in current_level:
+#             for nbr in adj_list[node]:
+#                 # comment out next line once loop is implemented
+#                 print(nbr)
+
+#         # update depth
+#         depth = 0
+#         # update distance for all the node in the next_level
+#         for i in next_level:
+#             # comment out next line once loop is implemented
+#             print(i)
+
+#         # add the current level of nodes into levels
+#         levels.append(current_level)
+
+#         # update current_level and next_level
+#         current_level = []
+
+#         next_level = []
+
+#     return distance, levels
+
+from collections import deque
+
+
 def levels_BFS(graph, s):
     # this function is essentially the same as distance_BFS()
     # the only difference is that we need to store all the levels of node
@@ -91,14 +154,14 @@ def find_pred(graph, levels, s):
         # nodes in the current level
         current_level = levels[level_num]
         # nodes in the previous level
-        prev_level = levels[level_num - 1]
+        prev_level = set(levels[level_num - 1])
 
         # find the predecessors for each node in current level
         for node in current_level:
 
             # predecessors are the intersection of neighbors and prev_level
-            nbrs = list(set(adj_list[node]) & set(prev_level))
-            pred_dict[node] = nbrs
+            nbrs = adj_list[node]
+            pred_dict[node] = [nbr for nbr in nbrs if nbr in prev_level]
 
     return pred_dict
 
@@ -165,14 +228,19 @@ def get_btw_c(graph, w, distance_mat, num_shortest_path_mat):
         d_uv = distance_mat[u, v]
         d_wv = distance_mat[w, v]
         d_wu = distance_mat[w, u]
-        if d_uv == d_wv + d_wu:  # check if w is on the shortest path of u and v
+        if d_uv == d_wu + d_wv:  # check if w is on the shortest path of u and v
             # compute number of shortest path (nsp) for three pairs of nodes (u,v), (w,v), (w,u)
             nsp_uv = num_shortest_path_mat[u, v]
             nsp_wu = num_shortest_path_mat[w, u]
             nsp_wv = num_shortest_path_mat[w, v]
             # update btw_c
-            btw_c += nsp_wu * nsp_wv / nsp_uv
+            btw_c += (nsp_wu * nsp_wv) / nsp_uv
 
     # return btw_c;
     # *** remember to normalize ***
-    return 2 * btw_c / (graph.n - 1) / (graph.n - 2)
+    normalization_factor = (
+        (graph.n - 1) * (graph.n - 2) / 2
+    )  # Possible node pairs excluding w
+    btw_c /= normalization_factor
+
+    return btw_c

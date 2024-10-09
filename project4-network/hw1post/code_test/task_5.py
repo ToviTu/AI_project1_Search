@@ -18,7 +18,7 @@ def info_diff(graph, seed_set, p):
     # seed_set: the initial set of seeds
     # p: universal activation probability
     # output: the number of activated nodes
-    # adj_list = graph.get_adj_list()
+    adj_list = graph.get_adj_list()
 
     n = graph.n
     adj_list = graph.get_adj_list()
@@ -48,13 +48,14 @@ def info_diff(graph, seed_set, p):
             nbrs = adj_list[u]
             for v in nbrs:  # add v into newly_activated according to the model
                 if activated_flag[v] == 0:
+                    # Activate v with probability p
                     rnd = np.random.uniform(0.0, 1.0)
-                    if rnd < p and activated_flag[v] == 0:
+                    if rnd < p:
                         newly_activated.append(v)
-                        activated_flag[v] = 1
+                        activated_flag[v] = 1  # Mark v as activated
 
         # add newly activated nodes into active nodes
-        active_nodes += newly_activated
+        active_nodes.extend(newly_activated)
 
         # update current active nodes
         current_active = newly_activated
@@ -72,11 +73,15 @@ def get_influence(graph, seed_set, p, mc):
     # initialize the total number of active nodes throughout simulations
     total_active_num = 0
 
+    # Perform mc simulations
     for i in range(mc):
-        # run a single simulation; update total_active_num
+        # Run a single diffusion simulation and update total_active_num
         total_active_num += info_diff(graph, seed_set, p)
 
     return total_active_num / mc
+
+
+import tqdm
 
 
 # find the optimal set of seeds using greedy search
@@ -88,7 +93,7 @@ def greedySearch(graph, k, p, mc):
     seed_set = []  # store the seeds
 
     influence = [0.0]  # store the influece of each set of seeds
-    for i in range(k):  # repeat k times to find k seeds
+    for i in tqdm.tqdm(range(k)):  # repeat k times to find k seeds
 
         # influence of current set of seeds
         current_influence = get_influence(graph, seed_set, p, mc)
@@ -99,9 +104,9 @@ def greedySearch(graph, k, p, mc):
         most_influence_node = -1
 
         for u in candidate:
-            # u = 0
-            u_influence = get_influence(graph, seed_set + [u], p, mc)
-            gain = u_influence - current_influence
+            new_seed_set = seed_set + [u]
+            new_influence = get_influence(graph, new_seed_set, p, mc)
+            gain = new_influence - current_influence
 
             if gain > max_gain:
                 max_gain = gain
@@ -135,10 +140,10 @@ def modify_graph(graph, target_nodes):
         nbrs = adj_list[u]
         # randomly select a neighbor
         v = np.random.choice(nbrs, 1)
-
-        # delete the edge; remember to modify two entries
         A_new[u, v] = 0
         A_new[v, u] = 0
+
+        # delete the edge; remember to modify two entries
 
     # transfer to scipy.sparse.csr.csr_matrix
     return sparse.csr_matrix(A_new)
