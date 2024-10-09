@@ -33,14 +33,17 @@ class HistoryPreprocessor(Preprocessor):
             np.zeros(FRAME_SHAPE, dtype=np.uint8) for _ in range(self.history_length)
         ]
 
+        self.last_raw = np.zeros(FRAME_SHAPE, dtype=np.uint8)
+
     def process_state_for_network(self, state, update_history=True):
         """You only want history when you're deciding the current action to take."""
 
         # Take maximum of the last 2 frames
-        state = np.maximum.reduce([state, self.history[-1]])
+        state_max = np.maximum.reduce([state, self.last_raw])
+        self.last_raw = state
 
         # Add to history
-        self.history.append(state)
+        self.history.append(state_max)
 
         if update_history:
             # Remove the oldest state
