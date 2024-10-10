@@ -11,6 +11,7 @@ import numpy as np
 from torch.nn import utils as nn_utils
 import matplotlib.pyplot as plt
 import time
+import wandb
 
 
 class DQNAgent:
@@ -63,6 +64,7 @@ class DQNAgent:
         num_burn_in,
         train_freq,
         batch_size,
+        use_wandb=False,
     ):
         self.q_network = q_network
         self.preprocessor = preprocessor
@@ -77,6 +79,15 @@ class DQNAgent:
         self.iter = 0  # Total steps including burn-in
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.use_wandb = use_wandb
+        if use_wandb:
+
+            wandb.init(project="drl")
+
+    def wandb_log(self, dict):
+        if self.use_wandb:
+            wandb.log(dict)
 
     def compile(self, optimizer, loss_func, lr):
         """Setup all of the TF graph variables/ops.
@@ -297,6 +308,16 @@ class DQNAgent:
                     + f" Q-values: {np.mean(np.concatenate(q_values))}"
                     + f" Epsilon: {self.policy.policy.epsilon}"
                 )
+
+                log = {
+                    "Iteration": self.iter,
+                    "Episode reward": episode_reward,
+                    "Episode length": episode_length,
+                    "Loss": np.mean(losses),
+                    "Q-values": np.mean(np.concatenate(q_values)),
+                    "Epsilon": self.policy.policy.epsilon,
+                }
+                self.wandb_log(log)
 
                 # Reset the environment
                 self.preprocessor.reset()
