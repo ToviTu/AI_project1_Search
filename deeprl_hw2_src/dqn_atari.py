@@ -120,10 +120,9 @@ def main():
         "-o", "--output", default="atari-v0", help="Directory to save data to"
     )
     parser.add_argument("--seed", default=0, type=int, help="Random seed")
+    parser.add_argument("--wandb", default=False, type=bool, help="Random seed")
 
     args = parser.parse_args()
-    # args.input_shape = tuple(args.input_shape)
-
     args.output = get_output_folder(args.output, args.env)
 
     # here is where you should start up a session,
@@ -139,7 +138,7 @@ def main():
     input_shape = (84, 84)
     window = 4
     gamma = 0.99
-    max_size = 1000000
+    max_size = int(1e6)
     batchsize = 32
     target_update_frequency = 10000
     lr = 3e-4
@@ -160,6 +159,7 @@ def main():
         num_burn_in=50000,
         train_freq=window,
         batch_size=batchsize,
+        use_wandb=args.wandb,
     )
     agent.compile(optimizer=torch.optim.Adam, loss_func=mean_huber_loss, lr=lr)
     agent.fit(env, num_iterations=max_size)

@@ -317,7 +317,7 @@ class ReplayMemory:
     def get_recent_states(self, zeros_shape):
         candidates = []
         valid = True
-        for offset in range(self.window_length):
+        for offset in range(1, self.window_length + 1):
             current_idx = (self.size - offset) % self.size
             if self.memory[current_idx] is None or (
                 offset > 0 and self.memory[current_idx].is_terminal
