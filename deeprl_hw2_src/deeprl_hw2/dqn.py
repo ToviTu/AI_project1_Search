@@ -122,6 +122,7 @@ class DQNAgent:
         # gradient flow from the target network
         self.optimizer = optimizer(self.Q.parameters(), lr=lr)
 
+    @torch.no_grad()
     def calc_q_values(self, state):
         """Given a state (or batch of states) calculate the Q-values.
 
@@ -133,8 +134,10 @@ class DQNAgent:
         """
         # Always get the estimated Q values from the target network
         input = self.preprocessor.process_state_for_network(state)
+        past_inputs = self.memory.get_recent_states(state.shape)
+        input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, :, :]], axis=0)
         input = torch.tensor(input, dtype=torch.float32).to(self.device)
-        return self.Q_target(state).detach()  # just to make sure no gradient flow
+        return self.Q_target(input).detach()  # just to make sure no gradient flow
 
     def select_action(self, state, policy, **kwargs):
         """Select the action based on the current state.
@@ -167,6 +170,7 @@ class DQNAgent:
         with torch.no_grad():
             q_values = self.Q(input)
             q_values = q_values.cpu().numpy()
+
         return policy.select_action(q_values, **kwargs)
 
     def update_policy(self):
@@ -374,9 +378,10 @@ class DQNAgent:
                 max_episode_length is None or step < max_episode_length
             ):
                 if step % self.train_freq == 0:
-                    action = self.select_action(
-                        processed_state, policy=self.policy, is_training=False
-                    )
+
+                    q_value = self.calc_q_values(processed_state).cpu().numpy()
+                    action = np.argmax(q_value)
+                    action = env.action_space.sample()
                 next_state, reward, done = env.step(action)
                 processed_next_state = self.preprocessor.process_state_for_memory(
                     next_state
