@@ -281,7 +281,7 @@ class DQNAgent:
 
         state = copy.deepcopy(env.reset())
         processed_state = self.preprocessor.process_state_for_memory(state)
-        while self.iter < num_iterations:
+        while self.iter < num_iterations * self.train_freq:
             # Repeat the action for 4 times
             if self.iter % self.train_freq == 0:
                 action = self.select_action(processed_state, policy=self.policy)
@@ -295,7 +295,7 @@ class DQNAgent:
 
             # Update the policy every train_freq steps
             if self.iter % self.train_freq == 0:
-                self.iter += 1
+
                 self.memory.append(
                     processed_state, action, reward, processed_next_state, done
                 )
@@ -303,6 +303,8 @@ class DQNAgent:
                 loss, q_value = self.update_policy()
                 losses.append(loss.item())
                 q_values.append(q_value.detach().flatten().cpu().numpy())
+
+            self.iter += 1
 
             state = next_state
             processed_state = processed_next_state
