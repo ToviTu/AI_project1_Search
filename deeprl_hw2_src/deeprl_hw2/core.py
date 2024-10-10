@@ -178,7 +178,7 @@ class ReplayMemory:
     If you are storing raw Sample objects in your memory, then you may
     not need the end_episode method, and you may want to tweak the
     append method. This will make the sample method easy to implement
-    (just ranomly draw samples saved in your memory).
+    (just ranomly draw saamples saved in your memory).
 
     However, the above approach will waste a lot of memory (as states
     will be stored multiple times in s as next state and then s' as
@@ -208,7 +208,7 @@ class ReplayMemory:
     def __init__(self, max_size, window_length):
         """Setup memory.
 
-        You should specify the maximum size of the memory. Once the
+        You should specify the maximum size o the memory. Once the
         memory fills up oldest values should be removed. You can try
         the collections.deque class as the underlying storage, but
         your sample method will be very slow.
@@ -216,47 +216,39 @@ class ReplayMemory:
         We recommend using a list as a ring buffer. Just track the
         index where the next sample should be inserted in the list.
         """
-        # Try to implement a ring memory buffer
-        self.buffer = [None] * max_size
         self.max_size = max_size
-        self.pointer = 0
-        self.is_full = False
+        self.window_length = window_length
+        self.memory = [None] * max_size
+        self.position = 0
+        self.count = 0
 
     def __len__(self):
-        if self.is_full:
-            return self.max_size
-        return self.pointer
+        return min(self.count, self.max_size)
 
     def append(self, state, action, reward, next_state, is_terminal):
-        # Make sure frames are already processed
-        assert state.shape == (4, 84, 84) and next_state.shape == (
-            4,
-            84,
-            84,
-        )  # (C, H, W)
 
-        assert state.dtype == np.uint8 and next_state.dtype == np.uint8
-
-        sample = Sample(state, action, reward, next_state, is_terminal)
-        self.buffer[self.pointer] = sample
-        self.pointer = (self.pointer + 1) % self.max_size
-        if not self.is_full and self.pointer == 0:
-            self.is_full = True
+        self.memory[self.position] = Sample(
+            state, action, reward, next_state, is_terminal
+        )
+        self.position = (self.position + 1) % self.max_size
+        self.count += 1
 
     def end_episode(self, final_state, is_terminal):
-        raise NotImplementedError("This method should be overridden")
+        if is_terminal:
+            assert final_state is None
+
+        final_sample = self.memory[self.position - 1]
+        final_sample.next_state = final_state
+        final_sample.is_terminal = is_terminal
+        self.position = (self.position + 1) % self.max_size
+        self.count += 1
 
     def sample(self, batch_size, indexes=None):
-
         if indexes is None:
-            if self.is_full:
-                indexes = np.random.choice(self.max_size, batch_size)
-            else:
-                indexes = np.random.choice(self.pointer, batch_size)
-        samples = [self.buffer[i] for i in indexes]
-        return samples
+            indexes = np.random.randint(0, self.count, size=batch_size)
+        return [self.memory[i] for i in indexes]
 
     def clear(self):
-        self.buffer = [None] * self.max_size
-        self.pointer = 0
-        self.is_full = False
+        self.memory = [None] * self.max_size
+        self.position = 0
+        self.count = 0

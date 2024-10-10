@@ -162,18 +162,12 @@ class AtariPreprocessor(Preprocessor):
         samples from the replay memory. Meaning you need to convert
         both state and next state values.
         """
-        # Assuming samples is a list of sample objects of (s, a, r, s', done)
-        # where s is already processed
-        processed_samples = []
+        # assume samples are preprocessed already
         for sample in samples:
-            processed_sample = copy.deepcopy(sample)
-            processed_state = processed_sample.state.astype(np.float32) / 255.0
-
-            processed_sample.state = processed_state
-
-            processed_samples.append(processed_sample)
-
-        return processed_samples
+            sample.state = sample.state.astype(np.float32) / 255.0
+            sample.next_state = sample.next_state.astype(np.float32) / 255.0
+            sample.reward = self.process_reward(sample.reward)
+        return samples
 
     def process_reward(self, reward):
         """Clip reward between -1 and 1."""
