@@ -138,7 +138,7 @@ def main():
     input_shape = (84, 84)
     window = 4
     gamma = 0.99
-    max_size = 1000000
+    max_size = int(1e6)
     batchsize = 32
     target_update_frequency = 10000
     lr = 3e-4

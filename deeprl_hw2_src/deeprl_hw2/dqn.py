@@ -295,6 +295,7 @@ class DQNAgent:
 
             # Update the policy every train_freq steps
             if self.iter % self.train_freq == 0:
+                self.iter += 1
                 self.memory.append(
                     processed_state, action, reward, processed_next_state, done
                 )
@@ -305,8 +306,6 @@ class DQNAgent:
 
             state = next_state
             processed_state = processed_next_state
-
-            self.iter += 1
 
             # Prepare to evaluate after the episode
             if self.iter % self.eval_freq == 0:
@@ -333,7 +332,7 @@ class DQNAgent:
 
                 if is_eval:
                     is_eval = False
-                    eval_rewards = self.evaluate(env, num_episodes=10)
+                    eval_rewards = np.mean(self.evaluate(env, num_episodes=10))
                     log["Eval rewards"] = eval_rewards
                     print(f"Evaluation rewards: {eval_rewards}")
 
