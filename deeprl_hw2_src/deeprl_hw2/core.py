@@ -1,6 +1,8 @@
 """Core classes."""
 
 import numpy as np
+import matplotlib.pyplot as plt
+import time
 
 
 class Sample:
@@ -40,6 +42,9 @@ class Sample:
         self.reward = reward
         self.next_state = next_state
         self.is_terminal = is_terminal
+
+        assert state.ndim == 2 and state.ndim == 2
+        assert state.dtype == np.uint8 and next_state.dtype == np.uint8
 
     def as_tuple(self):
         return (self.state, self.action, self.reward, self.next_state, self.is_terminal)
@@ -178,7 +183,7 @@ class ReplayMemory:
     If you are storing raw Sample objects in your memory, then you may
     not need the end_episode method, and you may want to tweak the
     append method. This will make the sample method easy to implement
-    (just ranomly draw saamples saved in your memory).
+    (just ranomly draw samples saved in your memory).
 
     However, the above approach will waste a lot of memory (as states
     will be stored multiple times in s as next state and then s' as
@@ -220,35 +225,117 @@ class ReplayMemory:
         self.window_length = window_length
         self.memory = [None] * max_size
         self.position = 0
-        self.count = 0
+        self.size = 0
 
-    def __len__(self):
-        return min(self.count, self.max_size)
-
-    def append(self, state, action, reward, next_state, is_terminal):
+    def append(self, state, action, reward, is_terminal, next_state, debug_info=None):
+        """
+        Add a sample to the replay memory.
+        """
 
         self.memory[self.position] = Sample(
-            state, action, reward, next_state, is_terminal
+            state, action, reward, is_terminal, next_state
         )
         self.position = (self.position + 1) % self.max_size
-        self.count += 1
+        if self.size < self.max_size:
+            self.size += 1
 
-    def end_episode(self, final_state, is_terminal):
-        if is_terminal:
-            assert final_state is None
-
-        final_sample = self.memory[self.position - 1]
-        final_sample.next_state = final_state
-        final_sample.is_terminal = is_terminal
-        self.position = (self.position + 1) % self.max_size
-        self.count += 1
+    def end_episode(self, final_state, is_terminal, debug_info=None):
+        """
+        Set the final state of an episode and mark whether it was a true terminal state.
+        """
+        if self.size == 0:
+            return
+        last_sample = self.memory[(self.position - 1) % self.size]
+        last_sample.next_state = final_state
+        last_sample.is_terminal = is_terminal
 
     def sample(self, batch_size, indexes=None):
+        """
+        Return list of samples from the memory.
+        """
         if indexes is None:
-            indexes = np.random.randint(0, self.count, size=batch_size)
-        return [self.memory[i] for i in indexes]
+            indexes = np.random.randint(0, self.size, size=batch_size)
+
+        states, actions, rewards, next_states, dones = [], [], [], [], []
+        for idx in indexes:
+            state_frames = []
+            next_state_frames = []
+
+            # Collect previous 3 frames + current frame for state
+            valid = True
+            for offset in range(self.window_length):
+                current_idx = (idx - offset) % self.size
+                if self.memory[current_idx] is None or (
+                    offset > 0 and self.memory[current_idx].is_terminal
+                ):
+                    valid = False
+
+                if not valid:
+                    # If we hit the start of an episode or out of bounds, use zero frames
+                    state_frames.insert(0, np.zeros_like(self.memory[idx].state))
+                else:
+                    state_frames.insert(0, self.memory[current_idx].state)
+
+            # Collect previous 3 frames + current frame for next_state
+            valid = True
+            for offset in range(self.window_length):
+                current_idx = (idx - offset) % self.size
+                if self.memory[current_idx] is None or (
+                    offset > 0 and self.memory[current_idx].is_terminal
+                ):
+                    valid = False
+
+                if not valid:
+                    next_state_frames.insert(
+                        0, np.zeros_like(self.memory[idx].next_state)
+                    )
+                else:
+                    next_state_frames.insert(0, self.memory[current_idx].next_state)
+
+            states.append(np.stack(state_frames, axis=0))
+            next_states.append(np.stack(next_state_frames, axis=0))
+            actions.append(self.memory[idx].action)
+            rewards.append(self.memory[idx].reward)
+            dones.append(self.memory[idx].is_terminal)
+
+        return (
+            np.array(states),
+            np.array(actions),
+            np.array(rewards),
+            np.array(next_states),
+            np.array(dones),
+        )
 
     def clear(self):
+        """
+        Reset the memory. Deletes all references to the samples.
+        """
         self.memory = [None] * self.max_size
         self.position = 0
-        self.count = 0
+        self.size = 0
+
+    def get_recent_states(self, zeros_shape):
+        candidates = []
+        valid = True
+        for offset in range(self.window_length):
+            current_idx = (self.size - offset) % self.size
+            if self.memory[current_idx] is None or (
+                offset > 0 and self.memory[current_idx].is_terminal
+            ):
+                valid = False
+
+            if not valid:
+                candidates.insert(0, np.zeros(zeros_shape))
+            else:
+                candidates.insert(0, self.memory[current_idx].state)
+
+        return np.stack(candidates, axis=0)
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        return self.memory[idx]
+
+    def __iter__(self):
+        return iter(self.memory[: self.size])

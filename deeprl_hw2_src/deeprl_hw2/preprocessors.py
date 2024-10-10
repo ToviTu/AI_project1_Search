@@ -33,35 +33,20 @@ class HistoryPreprocessor(Preprocessor):
             np.zeros(FRAME_SHAPE, dtype=np.uint8) for _ in range(self.history_length)
         ]
 
-        self.last_raw = np.zeros(FRAME_SHAPE, dtype=np.uint8)
-
-    def process_state_for_network(self, state, update_history=True):
+    def process_state_for_network(self, state):
         """You only want history when you're deciding the current action to take."""
 
-        # Avoid modifying the original state
-        state = copy.deepcopy(state)
         # Take maximum of the last 2 frames
-        state_max = np.maximum.reduce([state, self.last_raw])
-        self.last_raw = state
 
         # Add to history
-        self.history.append(state_max)
+        self.history.append(state)
 
-        if update_history:
-            # Remove the oldest state
-            if len(self.history) > self.history_length:
-                self.history.pop(0)
-        else:
-            # This is usefule when processing next states
-            self.history.pop()
+        if len(self.history) > self.history_length:
+            self.history.pop(0)
 
         # if use AtariPreprocessor and then HistoryPreprocessor
         # expect the output shape to be (m, 84, 84)
         return np.stack(self.history, axis=0)
-
-    def process_state_for_memory(self, state, update_history=True):
-        state = self.process_state_for_network(state, update_history=update_history)
-        return state.astype(np.uint8)
 
     def reset(self):
         """Reset the history sequence.
@@ -114,6 +99,7 @@ class AtariPreprocessor(Preprocessor):
 
     def __init__(self, new_size):
         self.new_size = new_size
+        self.past_frames = [np.zeros(new_size, dtype=np.uint8) for _ in range(4)]
 
     def process_state_for_memory(self, state):
         """Scale, convert to greyscale and store as uint8.
@@ -126,7 +112,7 @@ class AtariPreprocessor(Preprocessor):
         image conversions.
         """
         # assuming state is an image (210, 160, 3)
-        state = copy.deepcopy(state)
+        # state = copy.deepcopy(state)
         # Let us process with Image module
         img = Image.fromarray(state)
 
@@ -138,7 +124,17 @@ class AtariPreprocessor(Preprocessor):
 
         # convert to numpy array
         processed_state = np.array(img, dtype=np.uint8)
-        return processed_state
+
+        # max over the last two frames
+        max_processed_state = np.maximum.reduce(
+            self.past_frames + [processed_state], axis=0
+        )
+
+        # update the past frames
+        self.past_frames.append(processed_state)
+        self.past_frames.pop(0)
+
+        return max_processed_state
 
     def process_state_for_network(self, state):
         """Scale, convert to greyscale and store as float32.
@@ -146,13 +142,19 @@ class AtariPreprocessor(Preprocessor):
         Basically same as process state for memory, but this time
         outputs float32 images.
         """
-        # Similar to last fucntion but return float32 images
+        # assuming state is an image (210, 160, 3)
+        # state = copy.deepcopy(state)
+        # Let us process with Image module
+        img = Image.fromarray(state)
 
-        half_processed_state = self.process_state_for_memory(state)
-        processed_state = (
-            half_processed_state.astype(np.float32) / 255.0
-        )  # Normalize to [0, 1]
+        # rescale the image
+        img = img.resize(self.new_size)
 
+        # convert to greyscale
+        img = img.convert("L")
+
+        # convert to numpy array
+        processed_state = np.array(img, dtype=np.float32) / 255.0
         return processed_state
 
     def process_batch(self, samples):
@@ -163,11 +165,7 @@ class AtariPreprocessor(Preprocessor):
         both state and next state values.
         """
         # assume samples are preprocessed already
-        for sample in samples:
-            sample.state = sample.state.astype(np.float32) / 255.0
-            sample.next_state = sample.next_state.astype(np.float32) / 255.0
-            sample.reward = self.process_reward(sample.reward)
-        return samples
+        return samples.astype(np.float32) / 255.0
 
     def process_reward(self, reward):
         """Clip reward between -1 and 1."""
@@ -193,20 +191,16 @@ class PreprocessorSequence(Preprocessor):
         self.history = HistoryPreprocessor(window)
         self.atari = AtariPreprocessor(input_shape)
 
-    def process_state_for_network(self, state, update_history=True):
+    def process_state_for_network(self, state):
         """Process the state for the network."""
         state = self.atari.process_state_for_network(state)
-        state = self.history.process_state_for_network(
-            state, update_history=update_history
-        )
+        state = self.history.process_state_for_network(state)
         return state
 
-    def process_state_for_memory(self, state, update_history=True):
+    def process_state_for_memory(self, state):
         """Process the state for the memory."""
         state = self.atari.process_state_for_memory(state)
-        state = self.history.process_state_for_memory(
-            state, update_history=update_history
-        )
+        state = self.history.process_state_for_memory(state)
         return state
 
     def process_batch(self, samples):

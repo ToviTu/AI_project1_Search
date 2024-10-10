@@ -142,7 +142,7 @@ def main():
     max_size = 1000000
     batchsize = 32
     target_update_frequency = 10000
-    lr = 1e-5
+    lr = 3e-4
 
     # Create environment
     gym.register_envs(ale_py)
@@ -151,9 +151,9 @@ def main():
     agent = DQNAgent(
         q_network=create_model(window, input_shape, env.action_space.n),
         policy=tfrl.policy.LinearDecayGreedyEpsilonPolicy(
-            tfrl.policy.GreedyEpsilonPolicy, "epsilon", 1.0, 0.1, max_size
+            tfrl.policy.GreedyEpsilonPolicy, "epsilon", 1.0, 0.1, int(10e6)
         ),
-        preprocessor=PreprocessorSequence(input_shape, window),
+        preprocessor=AtariPreprocessor(input_shape),
         memory=tfrl.core.ReplayMemory(max_size, window),
         gamma=gamma,
         target_update_freq=target_update_frequency,
@@ -161,7 +161,6 @@ def main():
         train_freq=window,
         batch_size=batchsize,
     )
-
     agent.compile(optimizer=torch.optim.Adam, loss_func=mean_huber_loss, lr=lr)
     agent.fit(env, num_iterations=max_size)
     # agent.evaluate(env, num_episodes=5, policy=tfrl.policy.GreedyPolicy())
