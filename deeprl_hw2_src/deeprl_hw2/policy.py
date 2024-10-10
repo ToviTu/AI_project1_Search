@@ -169,6 +169,9 @@ class LinearDecayGreedyEpsilonPolicy(Policy):
                 / self.num_steps,
             )
             self.current_step += 1
+        else:
+            # Reduce to GreedyPolicy
+            setattr(self.policy, self.attr_name, 0)
         return self.policy.select_action(self.policy, q_values, **kwargs)
 
     def reset(self):

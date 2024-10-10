@@ -65,6 +65,7 @@ class DQNAgent:
         train_freq,
         batch_size,
         use_wandb=False,
+        eval_freq=int(1e4),
     ):
         self.q_network = q_network
         self.preprocessor = preprocessor
@@ -75,6 +76,7 @@ class DQNAgent:
         self.train_freq = train_freq
         self.batch_size = batch_size
         self.policy = policy
+        self.eval_freq = eval_freq
 
         self.iter = 0  # Total steps including burn-in
 
@@ -219,7 +221,7 @@ class DQNAgent:
             # self.Q_target = get_soft_target_model_updates(self.Q_target, self.Q, 0.1)
             self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
 
-        return loss, q_values
+        return loss, selected_q_values
 
     def fit(self, env, num_iterations, max_episode_length=None):
         """Fit your model to the provided environment.
@@ -271,11 +273,14 @@ class DQNAgent:
         episode_length = 0
         losses = []
         q_values = []
+        is_eval = False
 
         state = copy.deepcopy(env.reset())
         processed_state = self.preprocessor.process_state_for_memory(state)
         while self.iter < num_iterations:
-            action = self.select_action(processed_state, policy=self.policy)
+            # Repeat the action for 4 times
+            if self.iter % self.train_freq == 0:
+                action = self.select_action(processed_state, policy=self.policy)
             next_state, reward, done = env.step(action)
             episode_reward += reward
             episode_length += 1
@@ -299,14 +304,18 @@ class DQNAgent:
 
             self.iter += 1
 
+            # Prepare to evaluate after the episode
+            if self.iter % self.eval_freq == 0:
+                is_eval = True
+
             if done or (max_episode_length and episode_length >= max_episode_length):
                 print(
                     f"Iteration: {self.iter}"
                     + f" Episode reward: {episode_reward}"
                     + f" Episode length: {episode_length}"
-                    + f" Loss: {np.mean(losses)}"
-                    + f" Q-values: {np.mean(np.concatenate(q_values))}"
-                    + f" Epsilon: {self.policy.policy.epsilon}"
+                    + f" Loss: {np.mean(losses):.4f}"
+                    + f" Q-values: {np.mean(np.concatenate(q_values)):.4f}"
+                    + f" Epsilon: {self.policy.policy.epsilon:.4f}"
                 )
 
                 log = {
@@ -317,6 +326,13 @@ class DQNAgent:
                     "Q-values": np.mean(np.concatenate(q_values)),
                     "Epsilon": self.policy.policy.epsilon,
                 }
+
+                if is_eval:
+                    is_eval = False
+                    eval_rewards = self.evaluate(env, num_episodes=10)
+                    log["Eval rewards"] = eval_rewards
+                    print(f"Evaluation rewards: {eval_rewards}")
+
                 self.wandb_log(log)
 
                 # Reset the environment
@@ -329,6 +345,7 @@ class DQNAgent:
                 episode_reward = 0
                 episode_length = 0
 
+    @torch.no_grad()
     def evaluate(self, env, num_episodes, max_episode_length=None):
         """Test your agent with a provided environment.
 
@@ -342,21 +359,30 @@ class DQNAgent:
         You can also call the render function here if you want to
         visually inspect your policy.
         """
-        self.Q_target.eval()
-
+        seeds = np.arange(num_episodes)
         total_rewards = []
         for _ in range(num_episodes):
-            state = env.reset()
+            state = env.reset(seed=seeds[_].item())
+            self.preprocessor.reset()
+
+            processed_state = self.preprocessor.process_state_for_memory(state)
+            self.preprocessor.reset()
             done = False
             step = 0
             total_reward = 0
             while not done and (
                 max_episode_length is None or step < max_episode_length
             ):
-                action = self.select_action(state, policy=policy)
+                if step % self.train_freq == 0:
+                    action = self.select_action(
+                        processed_state, policy=self.policy, is_training=False
+                    )
                 next_state, reward, done = env.step(action)
+                processed_next_state = self.preprocessor.process_state_for_memory(
+                    next_state
+                )
                 total_reward += reward  # not discounted
-                state = next_state
+                processed_state = processed_next_state
                 step += 1
             total_rewards.append(total_reward)
 

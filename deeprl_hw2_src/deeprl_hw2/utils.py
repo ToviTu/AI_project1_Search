@@ -109,8 +109,8 @@ class AtariWrapper(gym.Wrapper):
         super(AtariWrapper, self).__init__(env)
         self.env = env
 
-    def reset(self):
-        state = self.env.reset()
+    def reset(self, seed=None):
+        state = self.env.reset(seed=seed)
 
         if isinstance(state, tuple):
             state = state[0]

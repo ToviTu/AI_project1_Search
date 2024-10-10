@@ -151,7 +151,7 @@ def main():
     agent = DQNAgent(
         q_network=create_model(window, input_shape, env.action_space.n),
         policy=tfrl.policy.LinearDecayGreedyEpsilonPolicy(
-            tfrl.policy.GreedyEpsilonPolicy, "epsilon", 1.0, 0.1, int(10e6)
+            tfrl.policy.GreedyEpsilonPolicy, "epsilon", 1.0, 0.1, int(1e6)
         ),
         preprocessor=AtariPreprocessor(input_shape),
         memory=tfrl.core.ReplayMemory(max_size, window),
