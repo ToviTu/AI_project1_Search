@@ -66,6 +66,7 @@ class DQNAgent:
         batch_size,
         use_wandb=False,
         eval_freq=int(1e4),
+        ddqn=False,
     ):
         self.q_network = q_network
         self.preprocessor = preprocessor
@@ -77,6 +78,7 @@ class DQNAgent:
         self.batch_size = batch_size
         self.policy = policy
         self.eval_freq = eval_freq
+        self.ddqn = ddqn
 
         self.iter = 0  # Total steps including burn-in
 
@@ -84,7 +86,6 @@ class DQNAgent:
 
         self.use_wandb = use_wandb
         if use_wandb:
-
             wandb.init(project="drl")
 
     def wandb_log(self, dict):
@@ -216,7 +217,14 @@ class DQNAgent:
             # Calculate the target values
             with torch.no_grad():
                 next_q_values = self.Q_target(next_states)
-                max_next_q_values = torch.max(next_q_values, dim=1).values
+                if self.ddqn:
+                    # Double DQN
+                    target_actions = torch.argmax(self.Q(next_states), dim=1)
+                else:
+                    target_actions = torch.argmax(next_q_values, dim=1)
+                max_next_q_values = torch.gather(
+                    next_q_values, 1, target_actions.unsqueeze(1)
+                ).squeeze()
                 target_values = rewards + self.gamma * max_next_q_values * (1 - dones)
 
             # Update your network

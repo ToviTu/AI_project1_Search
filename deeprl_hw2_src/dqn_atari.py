@@ -161,6 +161,7 @@ def main():
         num_burn_in=warm_up,
         train_freq=window,
         batch_size=batchsize,
+        ddqn=True,
         use_wandb=args.wandb,
     )
     agent.compile(optimizer=torch.optim.Adam, loss_func=mean_huber_loss, lr=lr)
