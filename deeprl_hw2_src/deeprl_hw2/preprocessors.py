@@ -126,15 +126,15 @@ class AtariPreprocessor(Preprocessor):
         processed_state = np.array(img, dtype=np.uint8)
 
         # max over the last two frames
-        max_processed_state = np.maximum.reduce(
-            self.past_frames + [processed_state], axis=0
-        )
+        # max_processed_state = np.maximum.reduce(
+        #     self.past_frames + [processed_state], axis=0
+        # )
 
         # update the past frames
         self.past_frames.append(processed_state)
         self.past_frames.pop(0)
 
-        return max_processed_state
+        return processed_state  # max_processed_state
 
     def process_state_for_network(self, state):
         """Scale, convert to greyscale and store as float32.

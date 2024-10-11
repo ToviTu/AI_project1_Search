@@ -144,7 +144,7 @@ class LinearDecayGreedyEpsilonPolicy(Policy):
         self.current_step = 0
         setattr(self.policy, self.attr_name, start_value)
 
-    def select_action(self, q_values, is_training=True, **kwargs):
+    def select_action(self, q_values, is_training=True, agent_step=None, **kwargs):
         """Decay parameter and select action.
 
         Parameters
@@ -159,6 +159,10 @@ class LinearDecayGreedyEpsilonPolicy(Policy):
         Any:
           Selected action.
         """
+
+        if agent_step is not None:
+            self.current_step = agent_step
+
         if is_training and self.current_step < self.num_steps:
             setattr(
                 self.policy,

@@ -7,6 +7,7 @@ import random
 import numpy as np
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 import deeprl_hw2 as tfrl
 from deeprl_hw2.dqn import DQNAgent
@@ -17,7 +18,7 @@ import gymnasium as gym
 import ale_py
 
 
-def create_model(window, input_shape, num_actions, model_name="q_network"):
+def create_model(window, num_actions, model_name="q_network"):
     """Create the Q-network model.
 
     You can use any DL library you like, including Tensorflow, Keras or PyTorch.
@@ -60,16 +61,16 @@ def create_model(window, input_shape, num_actions, model_name="q_network"):
             self.fc2 = nn.Linear(512, num_actions)
 
         def forward(self, x):
-            x = torch.relu(self.conv1(x))
-            x = torch.relu(self.conv2(x))
-            x = torch.relu(self.conv3(x))
-            if len(x.shape) > 3:
+            x = F.leaky_relu(self.conv1(x))
+            x = F.leaky_relu(self.conv2(x))
+            x = F.leaky_relu(self.conv3(x))
+            if x.ndim > 3:
                 x = x.flatten(
                     start_dim=1, end_dim=-1
                 )  # (B, C', H', W') -> (B, C'*H'*W')
             else:
                 x = x.flatten()  # (C', H', W') -> (C'*H'*W')
-            x = torch.relu(self.fc1(x))
+            x = F.leaky_relu(self.fc1(x))
             x = self.fc2(x)
             return x
 
@@ -139,16 +140,17 @@ def main():
     window = 4
     gamma = 0.99
     max_size = int(1e6)
-    batchsize = 32
-    target_update_frequency = 10000
-    lr = 3e-4
+    batchsize = 32 * 4
+    target_update_frequency = int(1e4)
+    lr = 0.00025
+    warm_up = 50000
 
     # Create environment
     gym.register_envs(ale_py)
     env = tfrl.utils.AtariWrapper(gym.make(args.env))
 
     agent = DQNAgent(
-        q_network=create_model(window, input_shape, env.action_space.n),
+        q_network=create_model(window, env.action_space.n),
         policy=tfrl.policy.LinearDecayGreedyEpsilonPolicy(
             tfrl.policy.GreedyEpsilonPolicy, "epsilon", 1.0, 0.1, int(1e6)
         ),
@@ -156,14 +158,15 @@ def main():
         memory=tfrl.core.ReplayMemory(max_size, window),
         gamma=gamma,
         target_update_freq=target_update_frequency,
-        num_burn_in=50000,
+        num_burn_in=warm_up,
         train_freq=window,
         batch_size=batchsize,
         use_wandb=args.wandb,
     )
     agent.compile(optimizer=torch.optim.Adam, loss_func=mean_huber_loss, lr=lr)
     agent.fit(env, num_iterations=max_size)
-    # agent.evaluate(env, num_episodes=5, policy=tfrl.policy.GreedyPolicy())
+    r = agent.evaluate(env, num_episodes=5)
+    print(r)
 
 
 if __name__ == "__main__":
