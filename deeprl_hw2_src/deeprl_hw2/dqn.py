@@ -134,12 +134,6 @@ class DQNAgent:
         ------
         Q-values for the state(s)
         """
-        # Always get the estimated Q values from the target network
-        # input = self.preprocessor.process_state_for_network(state)
-        # past_inputs = self.memory.get_recent_states(state.shape)
-        # print(np.max(past_inputs))
-        # print(past_inputs.dtype)
-        # input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, ...]], axis=0)
         input = state
         input = torch.tensor(input, dtype=torch.float32).to(self.device)
         return self.Q_target(input).detach()  # just to make sure no gradient flow
@@ -412,11 +406,7 @@ class DQNAgent:
                     stacked_states = self.preprocessor.process_state_for_network(
                         stacked_states
                     )
-                    # for i in range(4):
-                    #     plt.subplot(1, 4, i + 1)
-                    #     plt.imshow(stacked_states[i], cmap="gray")
-                    # plt.show()
-                    # time.sleep(0.3)
+
                     q_value = self.calc_q_values(stacked_states).cpu().numpy()
                     action = np.argmax(q_value)
                 next_state, reward, done = env.step(action)

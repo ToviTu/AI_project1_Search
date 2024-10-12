@@ -115,6 +115,8 @@ def get_output_folder(parent_dir, env_name):
 
     parent_dir = os.path.join(parent_dir, env_name)
     parent_dir = parent_dir + "-run{}".format(experiment_id)
+    print("Save data to", parent_dir)
+    os.makedirs(parent_dir, exist_ok=True)
     return parent_dir
 
 
@@ -129,6 +131,8 @@ def main():
 
     args = parser.parse_args()
     args.output = get_output_folder(args.output, args.env)
+    assert os.path.exists(args.output)
+    print("Output folder:", args.output)
 
     # here is where you should start up a session,
     # create your DQN agent, create your model, etc.
@@ -145,8 +149,8 @@ def main():
     gamma = 0.99
     max_size = int(1e6)
     batchsize = 32
-    target_update_frequency = int(1e4)
-    lr = 0.00025
+    target_update_frequency = int(2e4)
+    lr = 2.5e-5
     warm_up = 50000
 
     # Create environment
@@ -163,7 +167,7 @@ def main():
         gamma=gamma,
         target_update_freq=target_update_frequency,
         num_burn_in=warm_up,
-        train_freq=1,
+        train_freq=2,
         n_action_repeat=1,
         batch_size=batchsize,
         ddqn=False,
@@ -171,7 +175,8 @@ def main():
     )
     agent.compile(optimizer=torch.optim.Adam, loss_func=mean_huber_loss, lr=lr)
     agent.fit(env, num_iterations=max_size)
-    r = agent.evaluate(env, num_episodes=5)
+    torch.save(agent.Q_target.state_dict(), os.path.join(args.output, "dqn.pth"))
+    r = agent.evaluate(env, num_episodes=100)
     print(r)
 
 
