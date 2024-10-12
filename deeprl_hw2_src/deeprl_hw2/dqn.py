@@ -135,7 +135,7 @@ class DQNAgent:
         Q-values for the state(s)
         """
         # Always get the estimated Q values from the target network
-        input = state  # self.preprocessor.process_state_for_network(state)
+        input = self.preprocessor.process_state_for_network(state)
         past_inputs = self.memory.get_recent_states(state.shape)
         input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, :, :]], axis=0)
         input = torch.tensor(input, dtype=torch.float32).to(self.device)
@@ -168,7 +168,6 @@ class DQNAgent:
         past_inputs = self.memory.get_recent_states(state.shape)
         input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, ...]], axis=0)
         input = self.preprocessor.process_state_for_network(input)
-        assert np.max(input) <= 1.0  # Make sure the input is scaled
         input = torch.tensor(input, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             q_values = self.Q(input)
