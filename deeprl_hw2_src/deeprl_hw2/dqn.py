@@ -289,7 +289,6 @@ class DQNAgent:
         while self.iter < num_iterations:
             # Determine if we are in the burn-in period
             in_burn_in = len(self.memory) < self.num_burn_in
-            print(" Current memory size: ", len(self.memory))
 
             # Take an new action every n_action_repeat steps
             if self.iter % self.n_action_repeat == 0:
@@ -355,6 +354,7 @@ class DQNAgent:
                         + f" Q-values: {np.mean(np.concatenate(q_values)):.4f}"
                         + f" Epsilon: {self.policy.policy.epsilon:.4f}"
                     )
+                    print(" Current memory size: ", len(self.memory))
 
                     self.wandb_log(log)
 
