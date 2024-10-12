@@ -141,18 +141,8 @@ class AtariPreprocessor(Preprocessor):
         Basically same as process state for memory, but this time
         outputs float32 images.
         """
-        # assuming state is an image (210, 160, 3)
-        # Let us process with Image module
-        img = Image.fromarray(state)
-
-        # rescale the image
-        img = img.resize(self.new_size)
-
-        # convert to greyscale
-        img = img.convert("L")
-
         # convert to numpy array
-        processed_state = np.array(img, dtype=np.float32) / 255.0
+        processed_state = np.array(state, dtype=np.float32) / 255.0
         return processed_state
 
     def process_batch(self, samples):

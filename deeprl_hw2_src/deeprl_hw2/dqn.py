@@ -167,7 +167,8 @@ class DQNAgent:
         input = state  # self.preprocessor.process_state_for_network(state)
         past_inputs = self.memory.get_recent_states(state.shape)
         input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, ...]], axis=0)
-
+        input = self.preprocessor.process_state_for_network(input)
+        assert np.max(input) <= 1.0  # Make sure the input is scaled
         input = torch.tensor(input, dtype=torch.float32).to(self.device)
         with torch.no_grad():
             q_values = self.Q(input)
@@ -246,7 +247,7 @@ class DQNAgent:
 
         if self.iter % self.target_update_freq == 0:
             self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
-            print(f"updated target network at {self.iter}")
+            print(f"Updated target network at {self.iter}")
 
         return loss, selected_q_values
 
@@ -353,8 +354,8 @@ class DQNAgent:
                         + f" Loss: {np.mean(losses):.4f}"
                         + f" Q-values: {np.mean(np.concatenate(q_values)):.4f}"
                         + f" Epsilon: {self.policy.policy.epsilon:.4f}"
+                        + f" Current memory size: {len(self.memory)}"
                     )
-                    print(" Current memory size: ", len(self.memory))
 
                     self.wandb_log(log)
 

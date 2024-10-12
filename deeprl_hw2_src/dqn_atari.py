@@ -64,14 +64,6 @@ def create_model(window, num_actions, model_name="q_network"):
             self.fc2 = nn.Linear(512, num_actions)
 
         def forward(self, x):
-            # if x.ndim <= 3:
-            #     x = x.unsqueeze(0)
-            # for i in range(4):
-            #     plt.subplot(1, 4, i + 1)
-            #     plt.imshow(x[0, i].detach().cpu().numpy().squeeze(), cmap="gray")
-            # plt.show()
-            # time.sleep(0.3)
-
             x = F.leaky_relu(self.conv1(x))
             x = F.leaky_relu(self.conv2(x))
             x = F.leaky_relu(self.conv3(x))
