@@ -64,6 +64,7 @@ def create_model(window, num_actions, model_name="q_network"):
             self.fc2 = nn.Linear(512, num_actions)
 
         def forward(self, x):
+            assert torch.max(x) <= 1.0 and torch.max(x) >= 1 / 255.0
             x = F.leaky_relu(self.conv1(x))
             x = F.leaky_relu(self.conv2(x))
             x = F.leaky_relu(self.conv3(x))

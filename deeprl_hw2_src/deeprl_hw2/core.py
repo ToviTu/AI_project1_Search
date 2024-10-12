@@ -289,7 +289,7 @@ class ReplayMemory:
 
                 if not valid:
                     next_state_frames.insert(
-                        0, np.zeros_like(self.memory[idx].next_state)
+                        0, np.zeros_like(self.memory[idx].next_state, dtype=np.uint8)
                     )
                 else:
                     next_state_frames.insert(0, self.memory[current_idx].next_state)
@@ -330,7 +330,7 @@ class ReplayMemory:
                 valid = False
 
             if not valid:
-                candidates.insert(0, np.zeros(zeros_shape))
+                candidates.insert(0, np.zeros(zeros_shape, dtype=np.uint8))
             else:
                 candidates.insert(0, self.memory[current_idx].state)
 

@@ -135,9 +135,12 @@ class DQNAgent:
         Q-values for the state(s)
         """
         # Always get the estimated Q values from the target network
-        input = self.preprocessor.process_state_for_network(state)
-        past_inputs = self.memory.get_recent_states(state.shape)
-        input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, :, :]], axis=0)
+        # input = self.preprocessor.process_state_for_network(state)
+        # past_inputs = self.memory.get_recent_states(state.shape)
+        # print(np.max(past_inputs))
+        # print(past_inputs.dtype)
+        # input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, ...]], axis=0)
+        input = state
         input = torch.tensor(input, dtype=torch.float32).to(self.device)
         return self.Q_target(input).detach()  # just to make sure no gradient flow
 
@@ -383,6 +386,10 @@ class DQNAgent:
         visually inspect your policy.
         """
         total_rewards = []
+        # Note that we cannot get recent states from the memory
+        temporaray_memory = [
+            np.zeros(self.preprocessor.new_size, dtype=np.uint8)
+        ] * self.memory.window_length
         for _ in range(num_episodes):
             state = env.reset(seed=None)
             self.preprocessor.reset()
@@ -395,7 +402,22 @@ class DQNAgent:
                 max_episode_length is None or step < max_episode_length
             ):
                 if step % self.train_freq == 0:
-                    q_value = self.calc_q_values(processed_state).cpu().numpy()
+                    temporaray_memory.append(processed_state)
+                    if len(temporaray_memory) > self.memory.window_length:
+                        temporaray_memory.pop(0)
+                    assert len(temporaray_memory) == self.memory.window_length
+
+                if step % self.n_action_repeat == 0:
+                    stacked_states = np.stack(temporaray_memory, axis=0)
+                    stacked_states = self.preprocessor.process_state_for_network(
+                        stacked_states
+                    )
+                    # for i in range(4):
+                    #     plt.subplot(1, 4, i + 1)
+                    #     plt.imshow(stacked_states[i], cmap="gray")
+                    # plt.show()
+                    # time.sleep(0.3)
+                    q_value = self.calc_q_values(stacked_states).cpu().numpy()
                     action = np.argmax(q_value)
                 next_state, reward, done = env.step(action)
                 processed_next_state = self.preprocessor.process_state_for_memory(
