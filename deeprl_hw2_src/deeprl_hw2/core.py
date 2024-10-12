@@ -253,6 +253,8 @@ class ReplayMemory:
         """
         Return list of samples from the memory.
         """
+        assert self.size > batch_size, "Not enough samples in memory!"
+
         if indexes is None:
             indexes = np.random.randint(0, self.size, size=batch_size)
 
@@ -315,6 +317,9 @@ class ReplayMemory:
         self.size = 0
 
     def get_recent_states(self, zeros_shape):
+
+        assert self.size > 0, "No samples in memory!"
+
         candidates = []
         valid = True
         for offset in range(1, self.window_length + 1):

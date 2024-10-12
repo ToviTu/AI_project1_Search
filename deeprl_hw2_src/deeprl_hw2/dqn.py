@@ -64,6 +64,7 @@ class DQNAgent:
         num_burn_in,
         train_freq,
         batch_size,
+        n_action_repeat=4,
         use_wandb=False,
         eval_freq=int(1e4),
         ddqn=False,
@@ -76,6 +77,7 @@ class DQNAgent:
         self.num_burn_in = num_burn_in
         self.train_freq = train_freq
         self.batch_size = batch_size
+        self.n_action_repeat = n_action_repeat
         self.policy = policy
         self.eval_freq = eval_freq
         self.ddqn = ddqn
@@ -133,7 +135,7 @@ class DQNAgent:
         Q-values for the state(s)
         """
         # Always get the estimated Q values from the target network
-        input = self.preprocessor.process_state_for_network(state)
+        input = state  # self.preprocessor.process_state_for_network(state)
         past_inputs = self.memory.get_recent_states(state.shape)
         input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, :, :]], axis=0)
         input = torch.tensor(input, dtype=torch.float32).to(self.device)
@@ -162,9 +164,9 @@ class DQNAgent:
         """
 
         # Always get the action from the Q network
-        input = self.preprocessor.process_state_for_network(state)
+        input = state  # self.preprocessor.process_state_for_network(state)
         past_inputs = self.memory.get_recent_states(state.shape)
-        input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, :, :]], axis=0)
+        input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, ...]], axis=0)
 
         input = torch.tensor(input, dtype=torch.float32).to(self.device)
         with torch.no_grad():
@@ -191,6 +193,11 @@ class DQNAgent:
 
         loss = None
         selected_q_values = None
+
+        # Do not update the policy if the memory is not filled
+        if len(self.memory) < self.num_burn_in:
+            return loss, selected_q_values
+
         if self.iter % self.train_freq == 0:
             # Sample a minibatch
             states, actions, rewards, next_states, dones = self.memory.sample(
@@ -269,32 +276,6 @@ class DQNAgent:
           resets. Can help exploration.
         """
 
-        # Burn-in no update
-        state = copy.deepcopy(env.reset())
-        processed_state = self.preprocessor.process_state_for_memory(state)
-        for _ in range(self.num_burn_in * self.train_freq):
-            # Action repeat
-            if _ % self.train_freq == 0:
-                action = env.action_space.sample()
-            next_state, reward, done = env.step(action)
-
-            processed_next_state = self.preprocessor.process_state_for_memory(
-                next_state
-            )
-            if _ % self.train_freq == 0:
-                self.memory.append(
-                    processed_state, action, reward, processed_next_state, done
-                )
-            processed_state = processed_next_state
-            if done:
-                # Reset the environment
-                self.preprocessor.reset()
-                state = copy.deepcopy(env.reset())
-                processed_state = self.preprocessor.process_state_for_memory(state)
-
-        print("=== Burn-in done ===")
-        print(f"Memory size: {len(self.memory)}")
-
         # Training
         episode_reward = 0
         episode_length = 0
@@ -306,9 +287,19 @@ class DQNAgent:
         self.preprocessor.reset()
         processed_state = self.preprocessor.process_state_for_memory(state)
         while self.iter < num_iterations:
-            # Repeat the action for 4 times
-            if self.iter % self.train_freq == 0:
-                action = self.select_action(processed_state, policy=self.policy)
+            # Determine if we are in the burn-in period
+            in_burn_in = len(self.memory) < self.num_burn_in
+            print(" Current memory size: ", len(self.memory))
+
+            # Take an new action every n_action_repeat steps
+            if self.iter % self.n_action_repeat == 0:
+                # Select the action
+                if not in_burn_in:
+                    # Select the action using the policy
+                    action = self.select_action(processed_state, policy=self.policy)
+                else:
+                    # Random action during burn in
+                    action = env.action_space.sample()
             next_state, reward, done = env.step(action)
             episode_reward += reward
             episode_length += 1
@@ -317,7 +308,7 @@ class DQNAgent:
                 next_state
             )
 
-            # Update the policy every train_freq steps
+            # When to add the experience to the memory?
             if self.iter % self.train_freq == 0:
 
                 self.memory.append(
@@ -330,44 +321,46 @@ class DQNAgent:
                 losses.append(loss.item())
                 q_values.append(q_value.detach().flatten().cpu().numpy())
 
-            self.iter += 1
-
-            state = next_state
-            processed_state = processed_next_state
+            if not in_burn_in:
+                self.iter += 1
 
             # Prepare to evaluate after the episode
-            if self.iter % self.eval_freq == 0:
+            if not in_burn_in and self.iter % self.eval_freq == 0:
                 is_eval = True
 
+            processed_state = processed_next_state
+
             if done or (max_episode_length and episode_length >= max_episode_length):
-                print(
-                    f"Iteration: {self.iter}"
-                    + f" Episode reward: {episode_reward}"
-                    + f" Episode length: {episode_length}"
-                    + f" Loss: {np.mean(losses):.4f}"
-                    + f" Q-values: {np.mean(np.concatenate(q_values)):.4f}"
-                    + f" Epsilon: {self.policy.policy.epsilon:.4f}"
-                )
 
-                log = {
-                    "Iteration": self.iter,
-                    "Episode reward": episode_reward,
-                    "Episode length": episode_length,
-                    "Loss": np.mean(losses),
-                    "Q-values": np.mean(np.concatenate(q_values)),
-                    "Epsilon": self.policy.policy.epsilon,
-                }
+                if not in_burn_in:
+                    log = {
+                        "Iteration": self.iter,
+                        "Episode reward": episode_reward,
+                        "Episode length": episode_length,
+                        "Loss": np.mean(losses),
+                        "Q-values": np.mean(np.concatenate(q_values)),
+                        "Epsilon": self.policy.policy.epsilon,
+                    }
 
-                if is_eval:
-                    is_eval = False
-                    eval_rewards = np.mean(self.evaluate(env, num_episodes=10))
-                    log["Eval rewards"] = eval_rewards
+                    if is_eval:
+                        is_eval = False
+                        eval_rewards = np.mean(self.evaluate(env, num_episodes=10))
+                        log["Eval rewards"] = eval_rewards
 
-                self.wandb_log(log)
+                    print(
+                        f"Iteration: {self.iter}"
+                        + f" Episode reward: {episode_reward}"
+                        + f" Episode length: {episode_length}"
+                        + f" Loss: {np.mean(losses):.4f}"
+                        + f" Q-values: {np.mean(np.concatenate(q_values)):.4f}"
+                        + f" Epsilon: {self.policy.policy.epsilon:.4f}"
+                    )
+
+                    self.wandb_log(log)
 
                 # Reset the environment
                 self.preprocessor.reset()
-                state = env.reset()
+                state = copy.deepcopy(env.reset())
                 processed_state = self.preprocessor.process_state_for_memory(state)
 
                 losses = []
@@ -389,7 +382,6 @@ class DQNAgent:
         You can also call the render function here if you want to
         visually inspect your policy.
         """
-        seeds = np.arange(num_episodes)
         total_rewards = []
         for _ in range(num_episodes):
             state = env.reset(seed=None)

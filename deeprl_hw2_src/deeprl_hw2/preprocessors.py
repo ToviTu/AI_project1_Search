@@ -99,7 +99,7 @@ class AtariPreprocessor(Preprocessor):
 
     def __init__(self, new_size):
         self.new_size = new_size
-        self.past_frames = [np.zeros(new_size, dtype=np.uint8) for _ in range(4)]
+        self.past_frames = [np.zeros(new_size, dtype=np.uint8) for _ in range(1)]
 
     def process_state_for_memory(self, state):
         """Scale, convert to greyscale and store as uint8.
@@ -112,7 +112,6 @@ class AtariPreprocessor(Preprocessor):
         image conversions.
         """
         # assuming state is an image (210, 160, 3)
-        # state = copy.deepcopy(state)
         # Let us process with Image module
         img = Image.fromarray(state)
 
@@ -126,15 +125,15 @@ class AtariPreprocessor(Preprocessor):
         processed_state = np.array(img, dtype=np.uint8)
 
         # max over the last two frames
-        # max_processed_state = np.maximum.reduce(
-        #     self.past_frames + [processed_state], axis=0
-        # )
+        max_processed_state = np.maximum.reduce(
+            self.past_frames + [processed_state], axis=0
+        )
 
         # update the past frames
         self.past_frames.append(processed_state)
         self.past_frames.pop(0)
 
-        return processed_state  # max_processed_state
+        return max_processed_state
 
     def process_state_for_network(self, state):
         """Scale, convert to greyscale and store as float32.
@@ -143,7 +142,6 @@ class AtariPreprocessor(Preprocessor):
         outputs float32 images.
         """
         # assuming state is an image (210, 160, 3)
-        # state = copy.deepcopy(state)
         # Let us process with Image module
         img = Image.fromarray(state)
 

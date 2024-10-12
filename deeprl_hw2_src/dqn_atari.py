@@ -17,6 +17,9 @@ from deeprl_hw2.preprocessors import *
 import gymnasium as gym
 import ale_py
 
+import matplotlib.pyplot as plt
+import time
+
 
 def create_model(window, num_actions, model_name="q_network"):
     """Create the Q-network model.
@@ -61,6 +64,14 @@ def create_model(window, num_actions, model_name="q_network"):
             self.fc2 = nn.Linear(512, num_actions)
 
         def forward(self, x):
+            # if x.ndim <= 3:
+            #     x = x.unsqueeze(0)
+            # for i in range(4):
+            #     plt.subplot(1, 4, i + 1)
+            #     plt.imshow(x[0, i].detach().cpu().numpy().squeeze(), cmap="gray")
+            # plt.show()
+            # time.sleep(0.3)
+
             x = F.leaky_relu(self.conv1(x))
             x = F.leaky_relu(self.conv2(x))
             x = F.leaky_relu(self.conv3(x))
@@ -140,7 +151,7 @@ def main():
     window = 4
     gamma = 0.99
     max_size = int(1e6)
-    batchsize = 32 * 4
+    batchsize = 32
     target_update_frequency = int(1e4)
     lr = 0.00025
     warm_up = 50000
@@ -159,9 +170,10 @@ def main():
         gamma=gamma,
         target_update_freq=target_update_frequency,
         num_burn_in=warm_up,
-        train_freq=window,
+        train_freq=1,
+        n_action_repeat=1,
         batch_size=batchsize,
-        ddqn=True,
+        ddqn=False,
         use_wandb=args.wandb,
     )
     agent.compile(optimizer=torch.optim.Adam, loss_func=mean_huber_loss, lr=lr)
