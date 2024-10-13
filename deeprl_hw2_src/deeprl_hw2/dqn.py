@@ -62,9 +62,7 @@ class DQNAgent:
         gamma,
         target_update_freq,
         num_burn_in,
-        train_freq,
         batch_size,
-        n_action_repeat=4,
         use_wandb=False,
         eval_freq=int(1e4),
         ddqn=False,
@@ -75,14 +73,17 @@ class DQNAgent:
         self.gamma = gamma
         self.target_update_freq = target_update_freq
         self.num_burn_in = num_burn_in
-        self.train_freq = train_freq
         self.batch_size = batch_size
-        self.n_action_repeat = n_action_repeat
         self.policy = policy
         self.eval_freq = eval_freq
         self.ddqn = ddqn
 
-        self.iter = 0  # Total steps including burn-in
+        self.training_log = {
+            "iter": 0,
+            "n_updates": 0,
+            "n_episodes": 0,
+            "eval_rewards": [],
+        }
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -111,8 +112,9 @@ class DQNAgent:
         keras.optimizers.Optimizer class. Specifically the Adam
         optimizer.
         """
-        self.Q = self.q_network().to(self.device)  # assuming a pytorch model
+        self.Q = self.q_network().to(self.device)
         self.Q_target = self.q_network().to(self.device)
+        # Copy weights
         self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
         self.Q_target.requires_grad = False  # No gradient update
 
@@ -134,9 +136,25 @@ class DQNAgent:
         ------
         Q-values for the state(s)
         """
-        input = state
-        input = torch.tensor(input, dtype=torch.float32).to(self.device)
-        return self.Q_target(input).detach()  # just to make sure no gradient flow
+
+        # Just a forward pass for target Q network
+
+        if state.ndim == 3:
+            assert state.shape == (
+                self.preprocessor.window,
+                *self.preprocessor.new_size,
+            )
+            state = state[np.newaxis, ...]
+        else:
+            assert state.shape[1:] == (
+                self.preprocessor.window,
+                *self.preprocessor.new_size,
+            )
+
+        state_ = self.preprocessor.process_batch(state)
+
+        input = torch.tensor(state_, dtype=torch.float32).to(self.device)
+        return self.Q_target(input).detach().cpu().squeeze()  # (B, A) or (A)
 
     def select_action(self, state, policy, **kwargs):
         """Select the action based on the current state.
@@ -160,17 +178,28 @@ class DQNAgent:
         selected action
         """
 
+        if state.ndim == 3:
+            assert state.shape == (
+                self.preprocessor.window,
+                *self.preprocessor.new_size,
+            )
+            state = state[np.newaxis, ...]
+        else:
+            assert state.shape[1:] == (
+                self.preprocessor.window_length,
+                *self.preprocessor.new_size,
+            )
+
         # Always get the action from the Q network
-        input = state  # self.preprocessor.process_state_for_network(state)
-        past_inputs = self.memory.get_recent_states(state.shape)
-        input = np.concatenate([past_inputs[1:, ...], input[np.newaxis, ...]], axis=0)
-        input = self.preprocessor.process_state_for_network(input)
-        input = torch.tensor(input, dtype=torch.float32).to(self.device)
+        state_ = self.preprocessor.process_batch(state)
+        state_ = torch.tensor(state_, dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            q_values = self.Q(input)
+            q_values = self.Q(state_).detach().squeeze()  # (B, A) or (A)
             q_values = q_values.cpu().numpy()
 
-        return policy.select_action(q_values, agent_step=self.iter, **kwargs)
+        return policy.select_action(
+            q_values, agent_step=self.training_log["iter"], **kwargs
+        )
 
     def update_policy(self):
         """Update your policy.
@@ -195,55 +224,54 @@ class DQNAgent:
         if len(self.memory) < self.num_burn_in:
             return loss, selected_q_values
 
-        if self.iter % self.train_freq == 0:
-            # Sample a minibatch
-            states, actions, rewards, next_states, dones = self.memory.sample(
-                self.batch_size
-            )
+        # Sample a minibatch
+        states, actions, rewards, next_states, dones = self.memory.sample(
+            self.batch_size
+        )
 
-            # sample = states[np.random.choice(states.shape[0], 1), ...]
-            # for _ in range(4):
-            #     plt.subplot(1, 4, _ + 1)
-            #     plt.imshow(sample[0, _], cmap="gray")
-            # plt.show()
+        # Preprocess the states
+        states = self.preprocessor.process_batch(states)
+        next_states = self.preprocessor.process_batch(next_states)
+        rewards = self.preprocessor.process_reward(rewards)
 
-            states = self.preprocessor.process_batch(states)
-            next_states = self.preprocessor.process_batch(next_states)
-            rewards = self.preprocessor.process_reward(rewards)
+        # Convert to tensors
+        states = torch.tensor(states, dtype=torch.float32).to(self.device)
+        actions = torch.tensor(actions, dtype=torch.long).to(self.device)
+        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
+        next_states = torch.tensor(next_states, dtype=torch.float32).to(self.device)
+        dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
 
-            # Convert to tensors
-            states = torch.tensor(states, dtype=torch.float32).to(self.device)
-            actions = torch.tensor(actions, dtype=torch.long).to(self.device)
-            rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-            next_states = torch.tensor(next_states, dtype=torch.float32).to(self.device)
-            dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
+        # Calculate the target values
+        with torch.no_grad():
+            next_q_values = self.Q_target(next_states)
 
-            # Calculate the target values
-            with torch.no_grad():
-                next_q_values = self.Q_target(next_states)
-                if self.ddqn:
-                    # Double DQN
-                    target_actions = torch.argmax(self.Q(next_states), dim=1)
-                else:
-                    target_actions = torch.argmax(next_q_values, dim=1)
-                max_next_q_values = torch.gather(
-                    next_q_values, 1, target_actions.unsqueeze(1)
-                ).squeeze()
-                target_values = rewards + self.gamma * max_next_q_values * (1 - dones)
+        # Pick actions
+        if self.ddqn:
+            # Double DQN
+            target_actions = torch.argmax(self.Q(next_states), dim=1)  # (B)
+        else:
+            target_actions = torch.argmax(next_q_values, dim=1)  # (B)
+        max_next_q_values = torch.gather(
+            next_q_values, 1, target_actions.unsqueeze(1)
+        ).squeeze()
+        target_values = rewards + self.gamma * max_next_q_values * (1 - dones)
 
-            # Update your network
-            self.optimizer.zero_grad()
-            q_values = self.Q(states)  # (B, A)
-            selected_q_values = torch.gather(
-                q_values, 1, actions.unsqueeze(1)
-            ).squeeze()  # (B, 1) -> (B)
-            loss = self.loss_func(target_values, selected_q_values)
-            loss.backward()
-            self.optimizer.step()
+        # Update your network
+        self.optimizer.zero_grad()
+        q_values = self.Q(states)  # (B, A)
+        selected_q_values = torch.gather(
+            q_values, 1, actions.unsqueeze(1)
+        ).squeeze()  # (B, 1) -> (B)
+        loss = self.loss_func(target_values, selected_q_values)
+        loss.backward()
+        # Clip the gradients
+        nn_utils.clip_grad_norm_(self.Q.parameters(), 10.0)
+        self.optimizer.step()
+        self.training_log["n_updates"] += 1
 
-        if self.iter % self.target_update_freq == 0:
+        if self.training_log["iter"] % self.target_update_freq == 0:
             self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
-            print(f"Updated target network at {self.iter}")
+            print(f"Updated target network at {self.training_log['iter']}")
 
         return loss, selected_q_values
 
@@ -274,6 +302,8 @@ class DQNAgent:
         """
 
         # Training
+
+        # Log the episode
         episode_reward = 0
         episode_length = 0
         losses = []
@@ -283,20 +313,19 @@ class DQNAgent:
         state = copy.deepcopy(env.reset())
         self.preprocessor.reset()
         processed_state = self.preprocessor.process_state_for_memory(state)
-        while self.iter < num_iterations:
+        while self.training_log["iter"] < num_iterations:
             # Determine if we are in the burn-in period
             in_burn_in = len(self.memory) < self.num_burn_in
 
-            # Take an new action every n_action_repeat steps
-            if self.iter % self.n_action_repeat == 0:
-                # Select the action
-                if not in_burn_in:
-                    # Select the action using the policy
-                    action = self.select_action(processed_state, policy=self.policy)
-                else:
-                    # Random action during burn in
-                    action = env.action_space.sample()
-            next_state, reward, done = env.step(action)
+            # Select the action
+            if not in_burn_in:
+                # Select the action using the policy
+                action = self.select_action(processed_state, policy=self.policy)
+            else:
+                # Random action during burn in
+                action = env.action_space.sample()
+
+            next_state, reward, done, _, _ = env.step(action)
             episode_reward += reward
             episode_length += 1
 
@@ -304,12 +333,12 @@ class DQNAgent:
                 next_state
             )
 
-            # When to add the experience to the memory?
-            if self.iter % self.train_freq == 0:
+            self.memory.append(
+                processed_state[-1], action, reward, done
+            )  # processed_next_state is not needed
 
-                self.memory.append(
-                    processed_state, action, reward, processed_next_state, done
-                )
+            if not in_burn_in:
+                self.training_log["iter"] += 1
 
             # Update the policy
             loss, q_value = self.update_policy()
@@ -317,20 +346,18 @@ class DQNAgent:
                 losses.append(loss.item())
                 q_values.append(q_value.detach().flatten().cpu().numpy())
 
-            if not in_burn_in:
-                self.iter += 1
-
             # Prepare to evaluate after the episode
-            if not in_burn_in and self.iter % self.eval_freq == 0:
+            if not in_burn_in and self.training_log["iter"] % self.eval_freq == 0:
                 is_eval = True
 
+            # Update the state
             processed_state = processed_next_state
 
             if done or (max_episode_length and episode_length >= max_episode_length):
 
                 if not in_burn_in:
                     log = {
-                        "Iteration": self.iter,
+                        "Iteration": self.training_log["iter"],
                         "Episode reward": episode_reward,
                         "Episode length": episode_length,
                         "Loss": np.mean(losses),
@@ -340,11 +367,12 @@ class DQNAgent:
 
                     if is_eval:
                         is_eval = False
-                        eval_rewards = np.mean(self.evaluate(env, num_episodes=10))
+                        eval_rewards = np.mean(self.evaluate(env, num_episodes=20))
                         log["Eval rewards"] = eval_rewards
+                        self.training_log["eval_rewards"].append(eval_rewards)
 
                     print(
-                        f"Iteration: {self.iter}"
+                        f"Iteration: {self.training_log['iter']}"
                         + f" Episode reward: {episode_reward}"
                         + f" Episode length: {episode_length}"
                         + f" Loss: {np.mean(losses):.4f}"
@@ -365,6 +393,8 @@ class DQNAgent:
                 episode_reward = 0
                 episode_length = 0
 
+        return self.training_log
+
     @torch.no_grad()
     def evaluate(self, env, num_episodes, max_episode_length=None):
         """Test your agent with a provided environment.
@@ -381,11 +411,9 @@ class DQNAgent:
         """
         total_rewards = []
         # Note that we cannot get recent states from the memory
-        temporaray_memory = [
-            np.zeros(self.preprocessor.new_size, dtype=np.uint8)
-        ] * self.memory.window_length
-        for _ in range(num_episodes):
-            state = env.reset(seed=None)
+
+        for seed in range(num_episodes):
+            state = env.reset(seed=seed)
             self.preprocessor.reset()
 
             processed_state = self.preprocessor.process_state_for_memory(state)
@@ -395,21 +423,10 @@ class DQNAgent:
             while not done and (
                 max_episode_length is None or step < max_episode_length
             ):
-                if step % self.train_freq == 0:
-                    temporaray_memory.append(processed_state)
-                    if len(temporaray_memory) > self.memory.window_length:
-                        temporaray_memory.pop(0)
-                    assert len(temporaray_memory) == self.memory.window_length
+                q_value = self.calc_q_values(processed_state).numpy()
+                action = np.argmax(q_value)
 
-                if step % self.n_action_repeat == 0:
-                    stacked_states = np.stack(temporaray_memory, axis=0)
-                    stacked_states = self.preprocessor.process_state_for_network(
-                        stacked_states
-                    )
-
-                    q_value = self.calc_q_values(stacked_states).cpu().numpy()
-                    action = np.argmax(q_value)
-                next_state, reward, done = env.step(action)
+                next_state, reward, done, _, _ = env.step(action)
                 processed_next_state = self.preprocessor.process_state_for_memory(
                     next_state
                 )

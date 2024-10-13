@@ -147,11 +147,12 @@ def main():
     input_shape = (84, 84)
     window = 4
     gamma = 0.99
-    max_size = int(1e6)
+    n_steps = int(1e6)
+    max_size = int(1e5)
     batchsize = 32
-    target_update_frequency = int(2e4)
-    lr = 2.5e-5
-    warm_up = 50000
+    target_update_frequency = int(1e3)
+    lr = 1e-4
+    warm_up = int(1e5) - 2
 
     # Create environment
     gym.register_envs(ale_py)
@@ -160,22 +161,23 @@ def main():
     agent = DQNAgent(
         q_network=create_model(window, env.action_space.n),
         policy=tfrl.policy.LinearDecayGreedyEpsilonPolicy(
-            tfrl.policy.GreedyEpsilonPolicy, "epsilon", 1.0, 0.1, int(1e6)
+            tfrl.policy.GreedyEpsilonPolicy, "epsilon", 1.0, 0.01, int(1e5)
         ),
-        preprocessor=AtariPreprocessor(input_shape),
-        memory=tfrl.core.ReplayMemory(max_size, window),
+        preprocessor=AtariPreprocessor(input_shape, window=window),
+        memory=tfrl.core.ReplayMemory(max_size, window, state_shape=input_shape),
         gamma=gamma,
         target_update_freq=target_update_frequency,
         num_burn_in=warm_up,
-        train_freq=2,
-        n_action_repeat=1,
         batch_size=batchsize,
         ddqn=False,
         use_wandb=args.wandb,
     )
     agent.compile(optimizer=torch.optim.Adam, loss_func=mean_huber_loss, lr=lr)
-    agent.fit(env, num_iterations=max_size)
+    training_log = agent.fit(env, num_iterations=n_steps)
+    # Saving results
+    np.save(os.path.join(args.output, "eval_rewards.npy"), training_log["eval_rewards"])
     torch.save(agent.Q_target.state_dict(), os.path.join(args.output, "dqn.pth"))
+    # Final Evaluation
     r = agent.evaluate(env, num_episodes=100)
     print(r)
 

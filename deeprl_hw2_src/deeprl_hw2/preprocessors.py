@@ -10,6 +10,7 @@ from deeprl_hw2.core import Preprocessor
 FRAME_SHAPE = (84, 84)
 
 
+# Not used
 class HistoryPreprocessor(Preprocessor):
     """Keeps the last k states.
 
@@ -97,9 +98,13 @@ class AtariPreprocessor(Preprocessor):
       (84, 84) will make each image in the output have shape (84, 84).
     """
 
-    def __init__(self, new_size):
+    def __init__(self, new_size, window=4):
         self.new_size = new_size
-        self.past_frames = [np.zeros(new_size, dtype=np.uint8) for _ in range(1)]
+        self.window = window
+
+        # Store past frames to stack
+        self.past_frames = [np.zeros(new_size, dtype=np.uint8) for _ in range(window)]
+        self.last_raw_frame = self.past_frames[-1]
 
     def process_state_for_memory(self, state):
         """Scale, convert to greyscale and store as uint8.
@@ -112,6 +117,10 @@ class AtariPreprocessor(Preprocessor):
         image conversions.
         """
         # assuming state is an image (210, 160, 3)
+
+        # Shape check
+        assert state.shape == (210, 160, 3)
+
         # Let us process with Image module
         img = Image.fromarray(state)
 
@@ -124,16 +133,16 @@ class AtariPreprocessor(Preprocessor):
         # convert to numpy array
         processed_state = np.array(img, dtype=np.uint8)
 
-        # max over the last two frames
-        max_processed_state = np.maximum.reduce(
-            self.past_frames + [processed_state], axis=0
-        )
+        processed_state_ = np.maximum(processed_state, self.last_raw_frame)
+        self.last_raw_frame = copy.deepcopy(processed_state)
 
         # update the past frames
-        self.past_frames.append(processed_state)
+        self.past_frames.append(processed_state_)
         self.past_frames.pop(0)
 
-        return max_processed_state
+        stacked_frames = np.stack(self.past_frames, axis=0)
+        assert stacked_frames.shape == (self.window, *self.new_size)
+        return stacked_frames
 
     def process_state_for_network(self, state):
         """Scale, convert to greyscale and store as float32.
@@ -141,6 +150,17 @@ class AtariPreprocessor(Preprocessor):
         Basically same as process state for memory, but this time
         outputs float32 images.
         """
+
+        # Assume stacked frames
+        # Shape check
+        assert state.shape == (self.window, *self.new_size)
+
+        # Data type check
+        assert state.dtype == np.uint8
+
+        # Check not normalized
+        assert np.max(state) > 1  # Dont normalize twice
+
         # convert to numpy array
         processed_state = np.array(state, dtype=np.float32) / 255.0
         return processed_state
@@ -152,14 +172,35 @@ class AtariPreprocessor(Preprocessor):
         samples from the replay memory. Meaning you need to convert
         both state and next state values.
         """
-        # assume samples are preprocessed already
-        return samples.astype(np.float32) / 255.0
+        # assume the only thing in the samples are the states
+
+        # Accept stacked samples
+
+        # Shape check
+        assert samples.shape[1:] == (self.window, *self.new_size)
+
+        # Data type check
+        assert samples.dtype == np.uint8
+
+        # Check not normalized
+        assert np.max(samples) > 1
+
+        # convert to numpy array
+        processed_samples = np.array(samples, dtype=np.float32) / 255.0
+        return processed_samples
 
     def process_reward(self, reward):
         """Clip reward between -1 and 1."""
         return np.clip(reward, -1, 1)
 
+    def reset(self):
+        # Clear past frames
+        self.past_frames = [
+            np.zeros(self.new_size, dtype=np.uint8) for _ in range(self.window)
+        ]
 
+
+# Not used
 class PreprocessorSequence(Preprocessor):
     """You may find it useful to stack multiple prepcrocesosrs (such as the History and the AtariPreprocessor).
 

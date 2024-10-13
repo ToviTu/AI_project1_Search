@@ -164,13 +164,17 @@ class LinearDecayGreedyEpsilonPolicy(Policy):
             self.current_step = agent_step
 
         if is_training and self.current_step < self.num_steps:
-            setattr(
-                self.policy,
-                self.attr_name,
+            new_epsilon = (
                 self.start_value
                 - self.current_step
                 * (self.start_value - self.end_value)
-                / self.num_steps,
+                / self.num_steps
+            )
+            new_epsilon = max(new_epsilon, self.end_value)
+            setattr(
+                self.policy,
+                self.attr_name,
+                new_epsilon,
             )
             self.current_step += 1
         else:

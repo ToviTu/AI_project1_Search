@@ -210,7 +210,7 @@ class ReplayMemory:
       Reset the memory. Deletes all references to the samples.
     """
 
-    def __init__(self, max_size, window_length):
+    def __init__(self, max_size, window_length, state_shape):
         """Setup memory.
 
         You should specify the maximum size o the memory. Once the
@@ -223,124 +223,119 @@ class ReplayMemory:
         """
         self.max_size = max_size
         self.window_length = window_length
-        self.memory = [None] * max_size
+        self.state_shape = state_shape
+
+        # Implement a ring buffer but differentiate each elements
+        # easier to retrieve without for loops
+        # store state and next_state together since we know their order
+        # Store individual frames
+        self.frames = np.zeros((max_size, *state_shape), dtype=np.uint8)
+        self.actions = np.zeros((max_size,), dtype=np.int32)
+        self.rewards = np.zeros((max_size,), dtype=np.float32)
+        self.dones = np.zeros((max_size,), dtype=np.bool_)
         self.position = 0
         self.size = 0
 
-    def append(self, state, action, reward, is_terminal, next_state, debug_info=None):
+    def append(self, state, action, reward, done):
         """
         Add a sample to the replay memory.
         """
 
-        self.memory[self.position] = Sample(
-            state, action, reward, is_terminal, next_state
-        )
-        self.position = (self.position + 1) % self.max_size
-        if self.size < self.max_size:
-            self.size += 1
+        # Check not normalized
+        assert np.max(state) > 1
+        assert state.shape == self.state_shape
+        assert state.dtype == np.uint8
+        assert state.ndim == 2  # must not be stacked
 
-    def end_episode(self, final_state, is_terminal, debug_info=None):
+        # Insert and update the pointer
+        self.frames[self.position] = state
+        self.actions[self.position] = action
+        self.rewards[self.position] = reward
+        self.dones[self.position] = done
+        self.position = (self.position + 1) % self.max_size
+        self.size = max(self.size, self.position)
+
+    # Not planning to use this
+    def end_episode(self, final_state, is_terminal):
         """
         Set the final state of an episode and mark whether it was a true terminal state.
         """
         if self.size == 0:
             return
-        last_sample = self.memory[(self.position - 1) % self.size]
-        last_sample.next_state = final_state
-        last_sample.is_terminal = is_terminal
+        last_idx = (self.position - 1) % self.size
+        self.dones[last_idx] = is_terminal
 
-    def sample(self, batch_size, indexes=None):
+    def _get_stacked_frames(self, idx):
         """
-        Return list of samples from the memory.
+        Retrieve stacked frames for a given index.
+        Stack up to window_length frames, handling episode boundaries.
         """
-        assert self.size > batch_size, "Not enough samples in memory!"
+        end_idx = idx + 1  # The index is inclusive for the latest frame
+        start_idx = end_idx - self.window_length  # Window of frames
 
-        if indexes is None:
-            indexes = np.random.randint(0, self.size, size=batch_size)
+        indices = np.arange(start_idx, end_idx) % self.size
+        candidates = self.frames[indices]
 
-        states, actions, rewards, next_states, dones = [], [], [], [], []
-        for idx in indexes:
-            state_frames = []
-            next_state_frames = []
+        valid = self.dones[indices[:-1]] == False  # Ignore current frame
 
-            # Collect previous 3 frames + current frame for state
-            valid = True
-            for offset in range(self.window_length):
-                current_idx = (idx - offset) % self.size
-                if self.memory[current_idx] is None or (
-                    offset > 0 and self.memory[current_idx].is_terminal
-                ):
-                    valid = False
+        if valid.all():
+            frames_stack = candidates
+        else:
+            padding_size = np.where(~valid)[0][-1] + 1
+            padding = np.zeros_like(candidates[0])[np.newaxis, ...]
+            padding = np.repeat(padding, padding_size, axis=0)
+            frames_stack = np.concatenate([padding, candidates[padding_size:]], axis=0)
 
-                if not valid:
-                    # If we hit the start of an episode or out of bounds, use zero frames
-                    state_frames.insert(0, np.zeros_like(self.memory[idx].state))
-                else:
-                    state_frames.insert(0, self.memory[current_idx].state)
+        assert frames_stack.shape == (self.window_length, *self.state_shape)
 
-            # Collect previous 3 frames + current frame for next_state
-            valid = True
-            for offset in range(self.window_length):
-                current_idx = (idx - offset) % self.size
-                if self.memory[current_idx] is None or (
-                    offset > 0 and self.memory[current_idx].is_terminal
-                ):
-                    valid = False
+        return frames_stack
 
-                if not valid:
-                    next_state_frames.insert(
-                        0, np.zeros_like(self.memory[idx].next_state, dtype=np.uint8)
-                    )
-                else:
-                    next_state_frames.insert(0, self.memory[current_idx].next_state)
+    # Retrieve samples
+    def sample(self, batch_size):
+        """
+        Return a batch of stacked states, actions, rewards, next_states, and dones.
+        """
+        assert self.size >= batch_size, "Not enough samples in memory!"
 
-            states.append(np.stack(state_frames, axis=0))
-            next_states.append(np.stack(next_state_frames, axis=0))
-            actions.append(self.memory[idx].action)
-            rewards.append(self.memory[idx].reward)
-            dones.append(self.memory[idx].is_terminal)
+        indices = np.random.randint(0, self.size - 1, size=batch_size)
 
-        return (
-            np.array(states),
-            np.array(actions),
-            np.array(rewards),
-            np.array(next_states),
-            np.array(dones),
+        state_batch = np.array(
+            [self._get_stacked_frames(idx) for idx in indices], dtype=np.uint8
         )
+        next_state_batch = np.array(
+            [self._get_stacked_frames((idx + 1) % self.max_size) for idx in indices],
+            dtype=np.uint8,
+        )
+        action_batch = self.actions[indices]
+        reward_batch = self.rewards[indices]
+        done_batch = self.dones[indices]
+
+        return state_batch, action_batch, reward_batch, next_state_batch, done_batch
 
     def clear(self):
         """
         Reset the memory. Deletes all references to the samples.
         """
-        self.memory = [None] * self.max_size
+        # Reinitialize
+        self.frames = np.zeros((self.max_size, *self.state_shape), dtype=np.uint8)
+        self.actions = np.zeros((self.max_size,), dtype=np.int32)
+        self.rewards = np.zeros((self.max_size,), dtype=np.float32)
+        self.dones = np.zeros((self.max_size,), dtype=np.bool_)
         self.position = 0
         self.size = 0
-
-    def get_recent_states(self, zeros_shape):
-
-        assert self.size > 0, "No samples in memory!"
-
-        candidates = []
-        valid = True
-        for offset in range(1, self.window_length + 1):
-            current_idx = (self.size - offset) % self.size
-            if self.memory[current_idx] is None or (
-                offset > 0 and self.memory[current_idx].is_terminal
-            ):
-                valid = False
-
-            if not valid:
-                candidates.insert(0, np.zeros(zeros_shape, dtype=np.uint8))
-            else:
-                candidates.insert(0, self.memory[current_idx].state)
-
-        return np.stack(candidates, axis=0)
 
     def __len__(self):
         return self.size
 
     def __getitem__(self, idx):
-        return self.memory[idx]
+        return (
+            self.frames[idx],
+            self.actions[idx],
+            self.rewards[idx],
+            self.frames[(idx + 1) % self.max_size],
+            self.dones[idx],
+        )
 
     def __iter__(self):
-        return iter(self.memory[: self.size])
+        for i in range(self.size):
+            yield self[i]

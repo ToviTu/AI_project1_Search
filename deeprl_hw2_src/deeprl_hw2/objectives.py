@@ -28,6 +28,9 @@ def huber_loss(y_true, y_pred, max_grad=1.0):
     """
     # Going to implement this in torch
 
+    # Shape check
+    assert y_true.shape == y_pred.shape
+
     # Assuming y_true of shape (batch_size)
     diff = y_true - y_pred
 

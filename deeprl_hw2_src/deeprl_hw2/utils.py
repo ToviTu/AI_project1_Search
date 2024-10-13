@@ -104,6 +104,7 @@ def get_hard_target_model_updates(target, source):
     return target
 
 
+# Sometimes SpaceInvaders return more than just a frame
 class AtariWrapper(gym.Wrapper):
     def __init__(self, env):
         super(AtariWrapper, self).__init__(env)
@@ -125,4 +126,4 @@ class AtariWrapper(gym.Wrapper):
             state = state[0]
 
         assert state.shape == (210, 160, 3)
-        return state, reward, done
+        return state, reward, done, truncated, info
