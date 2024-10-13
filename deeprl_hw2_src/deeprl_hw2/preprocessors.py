@@ -104,7 +104,6 @@ class AtariPreprocessor(Preprocessor):
 
         # Store past frames to stack
         self.past_frames = [np.zeros(new_size, dtype=np.uint8) for _ in range(window)]
-        self.last_raw_frame = self.past_frames[-1]
 
     def process_state_for_memory(self, state):
         """Scale, convert to greyscale and store as uint8.
@@ -133,11 +132,8 @@ class AtariPreprocessor(Preprocessor):
         # convert to numpy array
         processed_state = np.array(img, dtype=np.uint8)
 
-        processed_state_ = np.maximum(processed_state, self.last_raw_frame)
-        self.last_raw_frame = copy.deepcopy(processed_state)
-
         # update the past frames
-        self.past_frames.append(processed_state_)
+        self.past_frames.append(processed_state)
         self.past_frames.pop(0)
 
         stacked_frames = np.stack(self.past_frames, axis=0)

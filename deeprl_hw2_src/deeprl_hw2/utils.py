@@ -1,6 +1,6 @@
 """Common functions you may find useful in your implementation."""
 
-import semver
+import numpy as np
 import gymnasium as gym
 import torch
 
@@ -104,11 +104,17 @@ def get_hard_target_model_updates(target, source):
     return target
 
 
+import matplotlib.pyplot as plt
+
+
 # Sometimes SpaceInvaders return more than just a frame
 class AtariWrapper(gym.Wrapper):
     def __init__(self, env):
         super(AtariWrapper, self).__init__(env)
+        self.frame_skip = 4
         self.env = env
+
+        self.frame_buffer = [None, None]
 
     def reset(self, seed=None):
         state = self.env.reset(seed=seed)
@@ -125,5 +131,21 @@ class AtariWrapper(gym.Wrapper):
         if isinstance(state, tuple):
             state = state[0]
 
+        acc_reward = 0
+        done = False
+
+        for idx in range(self.frame_skip):
+            next_state, reward, done, truncated, info = self.env.step(action)
+            acc_reward += reward
+
+            if idx == self.frame_skip - 2:
+                self.frame_buffer[0] = next_state
+            elif idx == self.frame_skip - 1:
+                self.frame_buffer[1] = next_state
+
+            if done:
+                break
+
+        final_state = np.maximum(self.frame_buffer[0], self.frame_buffer[1])
         assert state.shape == (210, 160, 3)
-        return state, reward, done, truncated, info
+        return final_state, acc_reward, done, truncated, info
