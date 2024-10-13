@@ -127,7 +127,8 @@ def main():
         "-o", "--output", default="atari-v0", help="Directory to save data to"
     )
     parser.add_argument("--seed", default=0, type=int, help="Random seed")
-    parser.add_argument("--wandb", default=False, type=bool, help="Random seed")
+    parser.add_argument("--wandb", default=False, type=bool, help="Report to WanDB")
+    parser.add_argument("--DDQN", default=False, type=bool, help="Use DDQN?")
 
     args = parser.parse_args()
     args.output = get_output_folder(args.output, args.env)
@@ -169,7 +170,7 @@ def main():
         target_update_freq=target_update_frequency,
         num_burn_in=warm_up,
         batch_size=batchsize,
-        ddqn=False,
+        ddqn=args.DDQN,
         use_wandb=args.wandb,
     )
     agent.compile(optimizer=torch.optim.Adam, loss_func=mean_huber_loss, lr=lr)
