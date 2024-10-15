@@ -1,5 +1,7 @@
 """Main DQN agent."""
 
+from os import name
+from random import seed
 import torch
 import copy
 from deeprl_hw2.utils import (
@@ -61,9 +63,11 @@ class DQNAgent:
         memory,
         gamma,
         target_update_freq,
+        train_freq,
         num_burn_in,
         batch_size,
         use_wandb=False,
+        wandb_name="DQN",
         eval_freq=int(1e4),
         ddqn=False,
     ):
@@ -72,24 +76,31 @@ class DQNAgent:
         self.memory = memory
         self.gamma = gamma
         self.target_update_freq = target_update_freq
+        self.train_freq = train_freq
         self.num_burn_in = num_burn_in
         self.batch_size = batch_size
         self.policy = policy
         self.eval_freq = eval_freq
         self.ddqn = ddqn
 
+        if ddqn:
+            print("Using Double DQN")
+        else:
+            print("Using DQN")
+
         self.training_log = {
             "iter": 0,
             "n_updates": 0,
             "n_episodes": 0,
             "eval_rewards": [],
+            "eval_rewards_std": [],
         }
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.use_wandb = use_wandb
         if use_wandb:
-            wandb.init(project="drl")
+            wandb.init(project="drl", name=wandb_name)
 
     def wandb_log(self, dict):
         if self.use_wandb:
@@ -224,50 +235,52 @@ class DQNAgent:
         if len(self.memory) < self.num_burn_in:
             return loss, selected_q_values
 
-        # Sample a minibatch
-        states, actions, rewards, next_states, dones = self.memory.sample(
-            self.batch_size
-        )
+        if self.training_log["iter"] % self.train_freq == 0:
 
-        # Preprocess the states
-        states = self.preprocessor.process_batch(states)
-        next_states = self.preprocessor.process_batch(next_states)
-        rewards = self.preprocessor.process_reward(rewards)
+            # Sample a minibatch
+            states, actions, rewards, next_states, dones = self.memory.sample(
+                self.batch_size
+            )
 
-        # Convert to tensors
-        states = torch.tensor(states, dtype=torch.float32).to(self.device)
-        actions = torch.tensor(actions, dtype=torch.long).to(self.device)
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        next_states = torch.tensor(next_states, dtype=torch.float32).to(self.device)
-        dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
+            # Preprocess the states
+            states = self.preprocessor.process_batch(states)
+            next_states = self.preprocessor.process_batch(next_states)
+            rewards = self.preprocessor.process_reward(rewards)
 
-        # Calculate the target values
-        with torch.no_grad():
-            next_q_values = self.Q_target(next_states)
+            # Convert to tensors
+            states = torch.tensor(states, dtype=torch.float32).to(self.device)
+            actions = torch.tensor(actions, dtype=torch.long).to(self.device)
+            rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
+            next_states = torch.tensor(next_states, dtype=torch.float32).to(self.device)
+            dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
 
-        # Pick actions
-        if self.ddqn:
-            # Double DQN
-            target_actions = torch.argmax(self.Q(next_states), dim=1)  # (B)
-        else:
-            target_actions = torch.argmax(next_q_values, dim=1)  # (B)
-        max_next_q_values = torch.gather(
-            next_q_values, 1, target_actions.unsqueeze(1)
-        ).squeeze()
-        target_values = rewards + self.gamma * max_next_q_values * (1 - dones)
+            # Calculate the target values
+            with torch.no_grad():
+                next_q_values = self.Q_target(next_states)
 
-        # Update your network
-        self.optimizer.zero_grad()
-        q_values = self.Q(states)  # (B, A)
-        selected_q_values = torch.gather(
-            q_values, 1, actions.unsqueeze(1)
-        ).squeeze()  # (B, 1) -> (B)
-        loss = self.loss_func(target_values, selected_q_values)
-        loss.backward()
-        # Clip the gradients
-        nn_utils.clip_grad_norm_(self.Q.parameters(), 10.0)
-        self.optimizer.step()
-        self.training_log["n_updates"] += 1
+            # Pick actions
+            if self.ddqn:
+                # Double DQN
+                target_actions = torch.argmax(self.Q(next_states), dim=1)  # (B)
+            else:
+                target_actions = torch.argmax(next_q_values, dim=1)  # (B)
+            max_next_q_values = torch.gather(
+                next_q_values, 1, target_actions.unsqueeze(1)
+            ).squeeze()
+            target_values = rewards + self.gamma * max_next_q_values * (1 - dones)
+
+            # Update your network
+            self.optimizer.zero_grad()
+            q_values = self.Q(states)  # (B, A)
+            selected_q_values = torch.gather(
+                q_values, 1, actions.unsqueeze(1)
+            ).squeeze()  # (B, 1) -> (B)
+            loss = self.loss_func(target_values, selected_q_values)
+            loss.backward()
+            # Clip the gradients
+            nn_utils.clip_grad_norm_(self.Q.parameters(), 10.0)
+            self.optimizer.step()
+            self.training_log["n_updates"] += 1
 
         if self.training_log["iter"] % self.target_update_freq == 0:
             self.Q_target = get_hard_target_model_updates(self.Q_target, self.Q)
@@ -367,9 +380,12 @@ class DQNAgent:
 
                     if is_eval:
                         is_eval = False
-                        eval_rewards = np.mean(self.evaluate(env, num_episodes=20))
-                        log["Eval rewards"] = eval_rewards
-                        self.training_log["eval_rewards"].append(eval_rewards)
+                        eval_rewards = self.evaluate(env, num_episodes=20)
+                        eval_rewards_mean = np.mean(eval_rewards)
+                        eval_rewards_std = np.std(eval_rewards)
+                        log["Eval rewards"] = eval_rewards_mean
+                        self.training_log["eval_rewards"].append(eval_rewards_mean)
+                        self.training_log["eval_rewards_std"].append(eval_rewards_std)
 
                     print(
                         f"Iteration: {self.training_log['iter']}"
@@ -439,3 +455,62 @@ class DQNAgent:
         print(f"All rewards: {total_rewards}")
 
         return total_rewards
+
+    def render_eval_video(
+        self,
+        env,
+        max_episode_length=None,
+        fps=int(60 / 4),
+        output_path="eval.mp4",
+    ):
+        import cv2
+
+        frames = []
+
+        state = env.reset(seed=None)
+        state = state[0] if isinstance(state, tuple) else state
+        self.preprocessor.reset()
+
+        processed_state = self.preprocessor.process_state_for_memory(state)
+        done = False
+        step = 0
+        total_reward = 0
+        while not done and (max_episode_length is None or step < max_episode_length):
+            q_value = self.calc_q_values(processed_state).numpy()
+            action = np.argmax(q_value)
+            # for i in range(processed_state.shape[0]):
+            #     plt.subplot(1, processed_state.shape[0], i + 1)
+            #     plt.imshow(processed_state[i], cmap="gray")
+            # plt.show()
+            # time.sleep(0.3)
+
+            next_state, reward, done, _, _ = env.step(action)
+            next_state = state[0] if isinstance(next_state, tuple) else next_state
+            processed_next_state = self.preprocessor.process_state_for_memory(
+                next_state
+            )
+            total_reward += reward  # not discounted
+            processed_state = processed_next_state
+            frames.append(next_state)
+            step += 1
+
+        print(f"Total reward: {total_reward}")
+
+        height, width, layers = frames[0].shape
+
+        # Define the codec and create a VideoWriter object
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Codec for mp4
+        video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+        # Write each frame to the video file
+        for frame in frames:
+            video.write(frame)
+
+        # Release the VideoWriter object
+        video.release()
+        print(f"Video saved at {output_path}")
+
+    def load_model(self, ckpt_path):
+        self.Q.load_state_dict(torch.load(ckpt_path))
+        self.Q_target.load_state_dict(torch.load(ckpt_path))
+        print(f"Model loaded from {ckpt_path}")
